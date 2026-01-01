@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鈔能力雷達 v2.8.1</title>
+    <title>鈔能力雷達 v3.0 (AI Edition)</title>
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -11,12 +11,17 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Markdown Parser for AI response -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-in { animation: fadeIn 0.5s ease-out forwards; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Markdown Styles */
+        .prose p { margin-bottom: 0.5em; }
+        .prose strong { color: #4285F4; }
     </style>
 </head>
 <body>
@@ -24,9 +29,11 @@
 
     <script type="text/babel">
         // ---------------------------------------------------------
-        // [設定區] Google Apps Script URL
+        // [設定區]
+        // 為了方便分享，建議保持為空，讓使用者在介面上輸入。
+        // 但如果您是自用，也可以直接填入下方引號。
         // ---------------------------------------------------------
-        const HARDCODED_API_URL = 'https://script.google.com/macros/s/AKfycbzbsWOv2kqXY91mdSonABuLUjyJfp06AdPU0-2JTRoNjIJavfRW4HDDMye6E4ISC_1H/exec'; 
+        const DEFAULT_GAS_URL = ''; 
         // ---------------------------------------------------------
 
         const { useState, useEffect, useMemo, useRef } = React;
@@ -58,12 +65,14 @@
         const StopCircle = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"></circle><rect x="9" y="9" width="6" height="6"></rect></IconBase>;
         const Volume2 = (props) => <IconBase {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></IconBase>;
         const ArrowUpDown = (props) => <IconBase {...props}><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></IconBase>;
+        const Settings = (props) => <IconBase {...props}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></IconBase>;
+        const Check = (props) => <IconBase {...props}><polyline points="20 6 9 17 4 12"></polyline></IconBase>;
+        const Key = (props) => <IconBase {...props}><path d="m21 2-2 2m-7.6 7.6a6 6 0 1 1-3.4-3.4l8.3-8.3 3.3 3.3-1.3 1.3-3.3-3.3z" /><path d="m13.4 13.4 3.3 3.3" /><path d="m16.8 16.8 3.3 3.3" /></IconBase>;
 
         // --- Helper: Generate Simple ID ---
         const generateId = () => Math.random().toString(36).substr(2, 9);
 
         // --- Mock Data ---
-        // Mocking 'yesterdayPrice' for simulation
         const MOCK_DATA = {
             stocks: [
                 { _ui_id: 'a1', id: '2330', name: '台積電', type: '半導體', account: '口袋', shares: 1000, price: 580, yesterdayPrice: 575 },
@@ -75,26 +84,29 @@
 
         const App = () => {
             // --- State ---
-            const [apiUrl, setApiUrl] = useState(HARDCODED_API_URL || localStorage.getItem('asset_api_url') || '');
+            const [apiUrl, setApiUrl] = useState(DEFAULT_GAS_URL || localStorage.getItem('asset_api_url') || '');
+            const [aiKey, setAiKey] = useState(localStorage.getItem('gemini_api_key') || ''); // [New] AI Key
+            
             const [useMock, setUseMock] = useState(true);
             const [isLoading, setIsLoading] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
             
             // Core Data
             const [stocks, setStocks] = useState(MOCK_DATA.stocks);
             const [cash, setCash] = useState(MOCK_DATA.cash);
             const [prevDayTotalAssets, setPrevDayTotalAssets] = useState(MOCK_DATA.lastHistory.totalAssets);
             
-            // Interaction State
+            // Interaction
             const [isEditing, setIsEditing] = useState(false);
             const [settlement, setSettlement] = useState({ landBank: 0, pocket: 0 }); 
             const [deleteConfirm, setDeleteConfirm] = useState({ show: false, targetId: null }); 
 
-            // AI / Others
+            // AI
             const [aiAnalysis, setAiAnalysis] = useState("");
             const [isGeneratingAI, setIsGeneratingAI] = useState(false);
             const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
-            // Sorting State
+            // Sorting
             const [sortConfig, setSortConfig] = useState({ key: 'marketValue', direction: 'desc' });
 
             useEffect(() => {
@@ -102,6 +114,7 @@
                     setUseMock(false);
                     fetchData(apiUrl);
                 } else {
+                    if (!localStorage.getItem('asset_api_url')) setShowSettings(true); // Auto show settings if no URL
                     setUseMock(true);
                     setStocks(MOCK_DATA.stocks);
                     setCash(MOCK_DATA.cash);
@@ -118,7 +131,6 @@
                         const loadedStocks = result.stocks.map(s => ({
                             ...s,
                             _ui_id: generateId(),
-                            // Ensure valid number, default to 0 if missing
                             yesterdayPrice: Number(s.yesterdayPrice) || 0 
                         }));
                         setStocks(loadedStocks);
@@ -136,7 +148,8 @@
 
             const saveData = async () => {
                 if (useMock || !apiUrl) {
-                    alert("請先將 Apps Script 網址填入程式碼上方的 HARDCODED_API_URL 變數中，才能儲存至後端。");
+                    alert("請先在設定中輸入 Google Apps Script 網址，才能儲存至後端。");
+                    setShowSettings(true);
                     setIsEditing(false);
                     return;
                 }
@@ -144,7 +157,7 @@
                 try {
                     const payload = { stocks: stocks, cash: cash };
                     await fetch(apiUrl, { method: 'POST', body: JSON.stringify(payload) });
-                    alert("儲存成功！今日資產紀錄已更新。");
+                    alert("儲存成功！");
                     setIsEditing(false);
                     fetchData(apiUrl);
                 } catch (error) {
@@ -153,7 +166,24 @@
                 setIsLoading(false);
             };
 
-            // --- Handlers ---
+            const handleSaveSettings = () => {
+                const urlInput = document.getElementById('apiUrlInput').value;
+                const keyInput = document.getElementById('apiKeyInput').value;
+                
+                setApiUrl(urlInput);
+                localStorage.setItem('asset_api_url', urlInput);
+                
+                setAiKey(keyInput);
+                localStorage.setItem('gemini_api_key', keyInput);
+
+                setShowSettings(false);
+                if(urlInput) {
+                    setUseMock(false);
+                    fetchData(urlInput);
+                }
+            };
+
+            // --- Handlers (Edit, Sort, Delete) ---
             const toggleEditMode = () => {
                 if (isEditing) {
                     if (!useMock && apiUrl) saveData();
@@ -162,48 +192,29 @@
                     setIsEditing(true);
                 }
             };
-
             const updateStockLocal = (uiId, field, value) => {
-                setStocks(prevStocks => prevStocks.map(stock => 
-                    stock._ui_id === uiId ? { ...stock, [field]: value } : stock
-                ));
+                setStocks(prevStocks => prevStocks.map(stock => stock._ui_id === uiId ? { ...stock, [field]: value } : stock));
             };
-
-            const handleDeleteClick = (uiId) => {
-                setDeleteConfirm({ show: true, targetId: uiId });
-            };
-
+            const handleDeleteClick = (uiId) => setDeleteConfirm({ show: true, targetId: uiId });
             const confirmDelete = () => {
-                if (deleteConfirm.targetId) {
-                    setStocks(prevStocks => prevStocks.filter(s => s._ui_id !== deleteConfirm.targetId));
-                }
+                if (deleteConfirm.targetId) setStocks(prevStocks => prevStocks.filter(s => s._ui_id !== deleteConfirm.targetId));
                 setDeleteConfirm({ show: false, targetId: null });
             };
-
-            const handleAddStock = () => {
-                // New stocks have no yesterday price, so diff will be 0/hidden
-                setStocks([...stocks, { _ui_id: generateId(), id: '', name: '新股票', type: '', account: '口袋', shares: 0, price: 0, yesterdayPrice: 0 }]);
-            };
-
+            const handleAddStock = () => setStocks([...stocks, { _ui_id: generateId(), id: '', name: '新股票', type: '', account: '口袋', shares: 0, price: 0, yesterdayPrice: 0 }]);
             const handleSettlement = (account) => {
                 const amount = Number(settlement[account]);
                 if (isNaN(amount) || amount === 0) return;
                 setCash(prev => ({ ...prev, [account]: prev[account] + amount }));
                 setSettlement(prev => ({ ...prev, [account]: 0 }));
             };
-
             const handleSort = (key) => {
                 if (isEditing) return; 
-                setSortConfig(prev => ({
-                    key,
-                    direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
-                }));
+                setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc' }));
             };
 
             // --- Logic & Calc ---
             const formatMoney = (n) => Math.round(n).toLocaleString();
             const formatPercent = (n) => n.toFixed(1) + '%';
-            
             const dateStr = new Date().toLocaleDateString('zh-TW', { month: 'long', day: 'numeric' });
             const weekDay = new Date().toLocaleDateString('zh-TW', { weekday: 'long' });
 
@@ -214,7 +225,6 @@
             const totalAssets = totalStockValue + totalCash;
             const dailyAssetDiff = totalAssets - prevDayTotalAssets;
             const dailyAssetDiffPercent = prevDayTotalAssets > 0 ? (dailyAssetDiff / prevDayTotalAssets) * 100 : 0;
-            
             const getDiffColor = (val) => val > 0 ? 'text-red-500' : val < 0 ? 'text-green-500' : 'text-gray-500';
 
             const groupStats = useMemo(() => {
@@ -226,61 +236,153 @@
                         groups[typeName] = (groups[typeName] || 0) + val;
                     }
                 });
-                return Object.entries(groups)
-                    .map(([name, value], idx) => ({ 
-                        name, value, pct: (value / totalStockValue) * 100,
-                        color: COLORS.palette[idx % COLORS.palette.length] 
-                    }))
-                    .sort((a, b) => b.value - a.value);
+                return Object.entries(groups).map(([name, value], idx) => ({ name, value, pct: (value / totalStockValue) * 100, color: COLORS.palette[idx % COLORS.palette.length] })).sort((a, b) => b.value - a.value);
             }, [stocks, totalStockValue]);
 
             const finalStockList = useMemo(() => {
                 const processed = stocks.map(stock => {
                     const marketValue = stock.shares * stock.price;
                     const ratio = totalStockValue > 0 ? (marketValue / totalStockValue) * 100 : 0;
-                    
-                    // [v2.8.1] Logic Update: Calc diff from (Price - YesterdayPrice)
                     let dailyDiff = 0;
-                    if (stock.yesterdayPrice && stock.yesterdayPrice > 0) {
-                        dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares;
-                    }
-
+                    if (stock.yesterdayPrice && stock.yesterdayPrice > 0) { dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares; }
                     return { ...stock, marketValue, ratio, dailyDiff };
                 });
-
-                if (isEditing) {
-                    return processed;
-                }
-
+                if (isEditing) return processed;
                 return processed.sort((a, b) => {
                     let valA, valB;
                     if (sortConfig.key === 'marketValue') { valA = a.marketValue; valB = b.marketValue; } 
                     else if (sortConfig.key === 'type') { valA = a.type || ''; valB = b.type || ''; } 
                     else if (sortConfig.key === 'account') { valA = a.account || ''; valB = b.account || ''; }
-
                     if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
                     if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
                     return 0;
                 });
             }, [stocks, totalStockValue, sortConfig, isEditing]);
 
-            // --- AI Logic ---
-            const generateAIInsight = () => {
+            // --- REAL AI Logic (Gemini API) ---
+            const generateAIInsight = async () => {
+                if (!aiKey) {
+                    setIsGeneratingAI(true);
+                    setTimeout(() => {
+                        setAiAnalysis(`(模擬模式) 請至「設定」輸入您的 Gemini API Key 以啟用真實 AI 分析。\n\n今日總資產 ${formatMoney(totalAssets)} 元。`);
+                        setIsGeneratingAI(false);
+                    }, 1000);
+                    return;
+                }
+
                 setIsGeneratingAI(true);
-                setTimeout(() => {
-                    const totalAssetVal = stocks.reduce((sum, s) => sum + s.shares * s.price, 0) + cash.landBank + cash.pocket;
-                    const topStock = [...stocks].sort((a,b) => (b.shares*b.price) - (a.shares*a.price))[0];
-                    setAiAnalysis(`今日資產總值 ${formatMoney(totalAssetVal)} 元。您的最大持倉為 ${topStock ? topStock.name : '無'}。`);
+                setAiAnalysis(""); // Clear previous
+
+                try {
+                    // 1. Prepare Data Context
+                    const context = {
+                        date: dateStr,
+                        totalAssets,
+                        dailyDiff: dailyAssetDiff,
+                        cash,
+                        stocks: finalStockList.map(s => ({
+                            name: s.name, 
+                            type: s.type, 
+                            value: s.marketValue, 
+                            diff: s.dailyDiff, 
+                            pct: s.ratio.toFixed(1) + '%'
+                        }))
+                    };
+
+                    const prompt = `
+                        你是一位專業的個人理財顧問。請根據以下用戶今日的資產數據，用繁體中文生成一份簡短的「每日投資快報」。
+                        
+                        數據：
+                        ${JSON.stringify(context)}
+
+                        要求：
+                        1. 語氣專業但親切。
+                        2. 先總結今日資產變動（漲跌金額與幅度）。
+                        3. 分析最大持股或表現顯著的族群。
+                        4. 根據現金水位 (${((totalCash/totalAssets)*100).toFixed(0)}%) 給出一句簡單建議 (如保留彈性或適度加碼)。
+                        5. 總字數控制在 150 字以內，不要用 Markdown 標題，直接分段即可。
+                    `;
+
+                    // 2. Call Gemini API
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.candidates && data.candidates[0].content) {
+                        const aiText = data.candidates[0].content.parts[0].text;
+                        setAiAnalysis(aiText);
+                    } else {
+                        throw new Error("API 回傳格式錯誤或額度不足");
+                    }
+
+                } catch (error) {
+                    setAiAnalysis(`AI 分析失敗: ${error.message}。請檢查 API Key 是否正確。`);
+                } finally {
                     setIsGeneratingAI(false);
-                }, 1500);
+                }
             };
+
             const playTTS = () => {
                 setIsPlayingAudio(!isPlayingAudio);
-                setTimeout(() => setIsPlayingAudio(false), 3000);
+                // Future: Integrate Web Speech API for TTS
+                if (!isPlayingAudio && aiAnalysis) {
+                    const utterance = new SpeechSynthesisUtterance(aiAnalysis.replace(/[^\w\u4e00-\u9fa5]/g, ',')); // Simple cleanup
+                    utterance.lang = 'zh-TW';
+                    window.speechSynthesis.speak(utterance);
+                    utterance.onend = () => setIsPlayingAudio(false);
+                } else {
+                    window.speechSynthesis.cancel();
+                }
             };
 
             return (
                 <div className="min-h-screen bg-gray-50 font-sans pb-24 relative">
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in">
+                            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <Settings size={20} className="text-gray-600"/> 
+                                    連線設定
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Google Apps Script URL</label>
+                                        <input 
+                                            type="text" 
+                                            defaultValue={apiUrl}
+                                            id="apiUrlInput"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="https://script.google.com/..."
+                                        />
+                                        <p className="text-xs text-gray-400 mt-1">用於讀寫試算表數據。</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                                            Gemini API Key <Key size={12}/>
+                                        </label>
+                                        <input 
+                                            type="password" 
+                                            defaultValue={aiKey}
+                                            id="apiKeyInput"
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="AIzaSy..."
+                                        />
+                                        <p className="text-xs text-gray-400 mt-1">選填，用於啟用 AI 分析。請至 Google AI Studio 申請。</p>
+                                    </div>
+                                    <div className="flex gap-2 justify-end pt-2">
+                                        <button onClick={() => setShowSettings(false)} className="px-4 py-2 text-gray-500 text-sm font-medium hover:bg-gray-100 rounded-lg">取消</button>
+                                        <button onClick={handleSaveSettings} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 flex items-center gap-1"><Check size={16}/> 儲存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Header */}
                     <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200">
                         <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
@@ -293,47 +395,23 @@
                                     {isLoading && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded flex items-center gap-1"><RefreshCw size={8} className="animate-spin"/> 同步中</span>}
                                 </div>
                             </div>
-                            <button onClick={toggleEditMode} disabled={isLoading} className={`p-2 rounded-full transition-all duration-300 ${isEditing ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-400' : 'bg-gray-100 text-gray-600'}`}>
-                                {isEditing ? <Save size={20} /> : <Edit2 size={20} />}
-                            </button>
+                            <div className="flex gap-2">
+                                <button onClick={() => setShowSettings(true)} className="p-2 rounded-full bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Settings size={20} /></button>
+                                <button onClick={toggleEditMode} disabled={isLoading} className={`p-2 rounded-full transition-all duration-300 ${isEditing ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-400' : 'bg-gray-100 text-gray-600'}`}>
+                                    {isEditing ? <Save size={20} /> : <Edit2 size={20} />}
+                                </button>
+                            </div>
                         </div>
                     </header>
 
                     <main className="max-w-md mx-auto px-4 py-4 space-y-4">
-                        {/* Custom Modal for Delete Confirmation */}
-                        {deleteConfirm.show && (
-                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in">
-                                <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm text-center">
-                                    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                                        <Trash2 size={24} className="text-red-500" />
-                                    </div>
-                                    <h3 className="text-lg font-bold text-gray-800 mb-2">確定要刪除嗎？</h3>
-                                    <p className="text-sm text-gray-500 mb-6">刪除後此持股紀錄將無法復原。</p>
-                                    <div className="flex gap-3 justify-center">
-                                        <button 
-                                            onClick={() => setDeleteConfirm({ show: false, targetId: null })}
-                                            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-bold flex-1"
-                                        >
-                                            取消
-                                        </button>
-                                        <button 
-                                            onClick={confirmDelete}
-                                            className="px-4 py-2 bg-red-500 text-white hover:bg-red-600 rounded-xl text-sm font-bold flex-1"
-                                        >
-                                            刪除
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* URL Check Warning */}
-                        {useMock && !apiUrl && (
-                            <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl text-xs text-yellow-800 flex items-start gap-2">
+                        {useMock && !apiUrl && !showSettings && (
+                            <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl text-xs text-yellow-800 flex items-start gap-2 cursor-pointer" onClick={() => setShowSettings(true)}>
                                 <span className="text-lg">⚠️</span>
                                 <div>
                                     <p className="font-bold">尚未連線</p>
-                                    <p>目前顯示模擬數據。請編輯此檔案，在 <code>HARDCODED_API_URL</code> 填入您的 Google Apps Script 網址。</p>
+                                    <p>點擊此處設定連線，啟用完整功能。</p>
                                 </div>
                             </div>
                         )}
@@ -380,7 +458,7 @@
                                     <h2 className="text-purple-800 font-bold flex items-center gap-2 mb-2"><Sparkles size={18} className="fill-purple-400 text-purple-600"/> AI 助理</h2>
                                     {aiAnalysis ? (
                                         <div className="space-y-3 animate-in">
-                                            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl text-sm text-gray-700 leading-relaxed shadow-sm">{aiAnalysis}</div>
+                                            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl text-sm text-gray-700 leading-relaxed shadow-sm prose" dangerouslySetInnerHTML={{ __html: marked.parse(aiAnalysis) }}></div>
                                             <div className="flex gap-2">
                                                 <button onClick={playTTS} disabled={isGeneratingAI} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${isPlayingAudio ? 'bg-red-100 text-red-600' : 'bg-purple-600 text-white hover:bg-purple-700'}`}>
                                                     {isGeneratingAI ? <Loader className="animate-spin" size={14} /> : isPlayingAudio ? <><StopCircle size={14} /> 停止</> : <><Volume2 size={14} /> 播報</>}
@@ -400,7 +478,8 @@
                             </div>
                         )}
 
-                        {/* Block 2: Stocks */}
+                        {/* Block 2 & 3: Stocks & Cash (Same as v2.9) */}
+                        {/* ... (The rest of the component remains the same as previous versions for brevity, ensuring Stocks and Cash blocks are included) ... */}
                         <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.red}}>
                             <div className="flex flex-col gap-3 mb-4">
                                 <div className="flex justify-between items-center">
@@ -480,7 +559,6 @@
                                                      <div className="flex flex-col items-end">
                                                         <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
                                                         <span className={`text-[10px] mt-0.5 ${getDiffColor(stock.dailyDiff)}`}>
-                                                           {/* Only show diff if yesterdayPrice is available and non-zero */}
                                                            {stock.yesterdayPrice > 0 ? (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff) : '-'}
                                                         </span>
                                                     </div>
