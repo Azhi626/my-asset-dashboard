@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鈔能力雷達 v2.8.1</title>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.5s ease-out forwards; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // ---------------------------------------------------------
+        // [設定區] Google Apps Script URL
+        // ---------------------------------------------------------
+        const HARDCODED_API_URL = 'https://script.google.com/macros/s/AKfycbzbsWOv2kqXY91mdSonABuLUjyJfp06AdPU0-2JTRoNjIJavfRW4HDDMye6E4ISC_1H/exec'; 
+        // ---------------------------------------------------------
+
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- Colors ---
+        const COLORS = {
+            blue: '#4285F4', red: '#EA4335', yellow: '#FBBC05', green: '#34A853',
+            gray: '#F1F3F4', darkGray: '#5F6368', white: '#FFFFFF', text: '#202124',
+            palette: ['#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8AB4F8', '#F28B82', '#FDD663', '#81C995', '#F06292', '#BA68C8']
+        };
+
+        // --- Icons ---
+        const IconBase = ({ children, color = "currentColor", size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const PieIcon = (props) => <IconBase {...props}><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10z" /></IconBase>;
+        const TrendingUp = (props) => <IconBase {...props}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></IconBase>;
+        const TrendingDown = (props) => <IconBase {...props}><polyline points="22 17 13.5 8.5 8.5 13.5 2 7" /><polyline points="16 17 22 17 22 11" /></IconBase>;
+        const Save = (props) => <IconBase {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></IconBase>;
+        const Edit2 = (props) => <IconBase {...props}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></IconBase>;
+        const Trash2 = (props) => <IconBase {...props}><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></IconBase>;
+        const Plus = (props) => <IconBase {...props}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></IconBase>;
+        const DollarSign = (props) => <IconBase {...props}><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></IconBase>;
+        const Calculator = (props) => <IconBase {...props}><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="14"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="8" y1="14" x2="8" y2="14"></line><line x1="16" y1="18" x2="16" y2="18"></line><line x1="12" y1="18" x2="12" y2="18"></line><line x1="8" y1="18" x2="8" y2="18"></line></IconBase>;
+        const Calendar = (props) => <IconBase {...props}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></IconBase>;
+        const RefreshCw = (props) => <IconBase {...props}><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></IconBase>;
+        const Sparkles = (props) => <IconBase {...props}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></IconBase>;
+        const Loader = (props) => <IconBase {...props}><path d="M12 2v4"></path><path d="m16.2 7.8 2.9-2.9"></path><path d="M18 12h4"></path><path d="m16.2 16.2 2.9 2.9"></path><path d="M12 18v4"></path><path d="m4.9 19.1 2.9-2.9"></path><path d="M2 12h4"></path><path d="m4.9 4.9 2.9 2.9"></path></IconBase>;
+        const StopCircle = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"></circle><rect x="9" y="9" width="6" height="6"></rect></IconBase>;
+        const Volume2 = (props) => <IconBase {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></IconBase>;
+        const ArrowUpDown = (props) => <IconBase {...props}><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></IconBase>;
+
+        // --- Helper: Generate Simple ID ---
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        // --- Mock Data ---
+        // Mocking 'yesterdayPrice' for simulation
+        const MOCK_DATA = {
+            stocks: [
+                { _ui_id: 'a1', id: '2330', name: '台積電', type: '半導體', account: '口袋', shares: 1000, price: 580, yesterdayPrice: 575 },
+                { _ui_id: 'a2', id: '0050', name: '元大台灣50', type: 'ETF', account: '土銀', shares: 2000, price: 135, yesterdayPrice: 136 },
+            ],
+            cash: { landBank: 48279, pocket: 453 },
+            lastHistory: { totalAssets: 1000000 }
+        };
+
+        const App = () => {
+            // --- State ---
+            const [apiUrl, setApiUrl] = useState(HARDCODED_API_URL || localStorage.getItem('asset_api_url') || '');
+            const [useMock, setUseMock] = useState(true);
+            const [isLoading, setIsLoading] = useState(false);
+            
+            // Core Data
+            const [stocks, setStocks] = useState(MOCK_DATA.stocks);
+            const [cash, setCash] = useState(MOCK_DATA.cash);
+            const [prevDayTotalAssets, setPrevDayTotalAssets] = useState(MOCK_DATA.lastHistory.totalAssets);
+            
+            // Interaction State
+            const [isEditing, setIsEditing] = useState(false);
+            const [settlement, setSettlement] = useState({ landBank: 0, pocket: 0 }); 
+            const [deleteConfirm, setDeleteConfirm] = useState({ show: false, targetId: null }); 
+
+            // AI / Others
+            const [aiAnalysis, setAiAnalysis] = useState("");
+            const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+            const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+
+            // Sorting State
+            const [sortConfig, setSortConfig] = useState({ key: 'marketValue', direction: 'desc' });
+
+            useEffect(() => {
+                if (apiUrl && apiUrl.startsWith('http')) {
+                    setUseMock(false);
+                    fetchData(apiUrl);
+                } else {
+                    setUseMock(true);
+                    setStocks(MOCK_DATA.stocks);
+                    setCash(MOCK_DATA.cash);
+                }
+            }, [apiUrl]);
+
+            const fetchData = async (url) => {
+                if (!url) return;
+                setIsLoading(true);
+                try {
+                    const response = await fetch(url);
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        const loadedStocks = result.stocks.map(s => ({
+                            ...s,
+                            _ui_id: generateId(),
+                            // Ensure valid number, default to 0 if missing
+                            yesterdayPrice: Number(s.yesterdayPrice) || 0 
+                        }));
+                        setStocks(loadedStocks);
+                        setCash(result.cash);
+                        if (result.lastHistory) {
+                            setPrevDayTotalAssets(result.lastHistory.totalAssets);
+                        }
+                    }
+                } catch (error) {
+                    console.log("Fetch error:", error);
+                    setUseMock(true);
+                }
+                setIsLoading(false);
+            };
+
+            const saveData = async () => {
+                if (useMock || !apiUrl) {
+                    alert("請先將 Apps Script 網址填入程式碼上方的 HARDCODED_API_URL 變數中，才能儲存至後端。");
+                    setIsEditing(false);
+                    return;
+                }
+                setIsLoading(true);
+                try {
+                    const payload = { stocks: stocks, cash: cash };
+                    await fetch(apiUrl, { method: 'POST', body: JSON.stringify(payload) });
+                    alert("儲存成功！今日資產紀錄已更新。");
+                    setIsEditing(false);
+                    fetchData(apiUrl);
+                } catch (error) {
+                    alert("儲存失敗: " + error.message);
+                }
+                setIsLoading(false);
+            };
+
+            // --- Handlers ---
+            const toggleEditMode = () => {
+                if (isEditing) {
+                    if (!useMock && apiUrl) saveData();
+                    else setIsEditing(false);
+                } else {
+                    setIsEditing(true);
+                }
+            };
+
+            const updateStockLocal = (uiId, field, value) => {
+                setStocks(prevStocks => prevStocks.map(stock => 
+                    stock._ui_id === uiId ? { ...stock, [field]: value } : stock
+                ));
+            };
+
+            const handleDeleteClick = (uiId) => {
+                setDeleteConfirm({ show: true, targetId: uiId });
+            };
+
+            const confirmDelete = () => {
+                if (deleteConfirm.targetId) {
+                    setStocks(prevStocks => prevStocks.filter(s => s._ui_id !== deleteConfirm.targetId));
+                }
+                setDeleteConfirm({ show: false, targetId: null });
+            };
+
+            const handleAddStock = () => {
+                // New stocks have no yesterday price, so diff will be 0/hidden
+                setStocks([...stocks, { _ui_id: generateId(), id: '', name: '新股票', type: '', account: '口袋', shares: 0, price: 0, yesterdayPrice: 0 }]);
+            };
+
+            const handleSettlement = (account) => {
+                const amount = Number(settlement[account]);
+                if (isNaN(amount) || amount === 0) return;
+                setCash(prev => ({ ...prev, [account]: prev[account] + amount }));
+                setSettlement(prev => ({ ...prev, [account]: 0 }));
+            };
+
+            const handleSort = (key) => {
+                if (isEditing) return; 
+                setSortConfig(prev => ({
+                    key,
+                    direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+                }));
+            };
+
+            // --- Logic & Calc ---
+            const formatMoney = (n) => Math.round(n).toLocaleString();
+            const formatPercent = (n) => n.toFixed(1) + '%';
+            
+            const dateStr = new Date().toLocaleDateString('zh-TW', { month: 'long', day: 'numeric' });
+            const weekDay = new Date().toLocaleDateString('zh-TW', { weekday: 'long' });
+
+            const totalStockValue = stocks.reduce((sum, s) => sum + (s.shares * s.price), 0);
+            const landBankStockValue = stocks.filter(s => s.account === '土銀').reduce((sum, s) => sum + (s.shares * s.price), 0);
+            const pocketStockValue = stocks.filter(s => s.account === '口袋').reduce((sum, s) => sum + (s.shares * s.price), 0);
+            const totalCash = Number(cash.landBank) + Number(cash.pocket);
+            const totalAssets = totalStockValue + totalCash;
+            const dailyAssetDiff = totalAssets - prevDayTotalAssets;
+            const dailyAssetDiffPercent = prevDayTotalAssets > 0 ? (dailyAssetDiff / prevDayTotalAssets) * 100 : 0;
+            
+            const getDiffColor = (val) => val > 0 ? 'text-red-500' : val < 0 ? 'text-green-500' : 'text-gray-500';
+
+            const groupStats = useMemo(() => {
+                const groups = {};
+                stocks.forEach(s => {
+                    const val = s.shares * s.price;
+                    if (val > 0) {
+                        const typeName = s.type || '未分類';
+                        groups[typeName] = (groups[typeName] || 0) + val;
+                    }
+                });
+                return Object.entries(groups)
+                    .map(([name, value], idx) => ({ 
+                        name, value, pct: (value / totalStockValue) * 100,
+                        color: COLORS.palette[idx % COLORS.palette.length] 
+                    }))
+                    .sort((a, b) => b.value - a.value);
+            }, [stocks, totalStockValue]);
+
+            const finalStockList = useMemo(() => {
+                const processed = stocks.map(stock => {
+                    const marketValue = stock.shares * stock.price;
+                    const ratio = totalStockValue > 0 ? (marketValue / totalStockValue) * 100 : 0;
+                    
+                    // [v2.8.1] Logic Update: Calc diff from (Price - YesterdayPrice)
+                    let dailyDiff = 0;
+                    if (stock.yesterdayPrice && stock.yesterdayPrice > 0) {
+                        dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares;
+                    }
+
+                    return { ...stock, marketValue, ratio, dailyDiff };
+                });
+
+                if (isEditing) {
+                    return processed;
+                }
+
+                return processed.sort((a, b) => {
+                    let valA, valB;
+                    if (sortConfig.key === 'marketValue') { valA = a.marketValue; valB = b.marketValue; } 
+                    else if (sortConfig.key === 'type') { valA = a.type || ''; valB = b.type || ''; } 
+                    else if (sortConfig.key === 'account') { valA = a.account || ''; valB = b.account || ''; }
+
+                    if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }, [stocks, totalStockValue, sortConfig, isEditing]);
+
+            // --- AI Logic ---
+            const generateAIInsight = () => {
+                setIsGeneratingAI(true);
+                setTimeout(() => {
+                    const totalAssetVal = stocks.reduce((sum, s) => sum + s.shares * s.price, 0) + cash.landBank + cash.pocket;
+                    const topStock = [...stocks].sort((a,b) => (b.shares*b.price) - (a.shares*a.price))[0];
+                    setAiAnalysis(`今日資產總值 ${formatMoney(totalAssetVal)} 元。您的最大持倉為 ${topStock ? topStock.name : '無'}。`);
+                    setIsGeneratingAI(false);
+                }, 1500);
+            };
+            const playTTS = () => {
+                setIsPlayingAudio(!isPlayingAudio);
+                setTimeout(() => setIsPlayingAudio(false), 3000);
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50 font-sans pb-24 relative">
+                    {/* Header */}
+                    <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200">
+                        <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
+                            <div>
+                                <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                    <span style={{color: COLORS.blue}}>鈔</span><span style={{color: COLORS.green}}>能力</span><span style={{color: COLORS.red}}>雷達</span>
+                                </h1>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-xs text-gray-500 flex items-center gap-1"><Calendar size={12} /> {dateStr} ({weekDay})</p>
+                                    {isLoading && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded flex items-center gap-1"><RefreshCw size={8} className="animate-spin"/> 同步中</span>}
+                                </div>
+                            </div>
+                            <button onClick={toggleEditMode} disabled={isLoading} className={`p-2 rounded-full transition-all duration-300 ${isEditing ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-400' : 'bg-gray-100 text-gray-600'}`}>
+                                {isEditing ? <Save size={20} /> : <Edit2 size={20} />}
+                            </button>
+                        </div>
+                    </header>
+
+                    <main className="max-w-md mx-auto px-4 py-4 space-y-4">
+                        {/* Custom Modal for Delete Confirmation */}
+                        {deleteConfirm.show && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in">
+                                <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm text-center">
+                                    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                                        <Trash2 size={24} className="text-red-500" />
+                                    </div>
+                                    <h3 className="text-lg font-bold text-gray-800 mb-2">確定要刪除嗎？</h3>
+                                    <p className="text-sm text-gray-500 mb-6">刪除後此持股紀錄將無法復原。</p>
+                                    <div className="flex gap-3 justify-center">
+                                        <button 
+                                            onClick={() => setDeleteConfirm({ show: false, targetId: null })}
+                                            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-bold flex-1"
+                                        >
+                                            取消
+                                        </button>
+                                        <button 
+                                            onClick={confirmDelete}
+                                            className="px-4 py-2 bg-red-500 text-white hover:bg-red-600 rounded-xl text-sm font-bold flex-1"
+                                        >
+                                            刪除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* URL Check Warning */}
+                        {useMock && !apiUrl && (
+                            <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl text-xs text-yellow-800 flex items-start gap-2">
+                                <span className="text-lg">⚠️</span>
+                                <div>
+                                    <p className="font-bold">尚未連線</p>
+                                    <p>目前顯示模擬數據。請編輯此檔案，在 <code>HARDCODED_API_URL</code> 填入您的 Google Apps Script 網址。</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Block 1: Overview */}
+                        <div className="bg-white rounded-2xl shadow-sm p-5 border-l-4" style={{borderColor: COLORS.blue}}>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-gray-500 text-sm font-medium">總資產淨值</span>
+                                <span className={`text-sm font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
+                                    {dailyAssetDiff > 0 ? <TrendingUp size={16} className="mr-1"/> : <TrendingDown size={16} className="mr-1"/>}
+                                    {formatPercent(dailyAssetDiffPercent)}
+                                </span>
+                            </div>
+                            <div className="text-3xl font-extrabold text-gray-800 tracking-tight">${formatMoney(totalAssets)}</div>
+                            <div className="mt-4 flex h-2 w-full rounded-full overflow-hidden bg-gray-100">
+                                <div style={{width: `${totalAssets > 0 ? (totalStockValue/totalAssets)*100 : 0}%`, backgroundColor: COLORS.blue}}></div>
+                                <div style={{width: `${totalAssets > 0 ? (totalCash/totalAssets)*100 : 0}%`, backgroundColor: COLORS.yellow}}></div>
+                            </div>
+                            <div className="mt-2 flex justify-between text-xs text-gray-500 mb-4 border-b border-gray-100 pb-4">
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{background:COLORS.blue}}></div>股票 {totalAssets > 0 ? (totalStockValue/totalAssets*100).toFixed(1) : 0}%</span>
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{background:COLORS.yellow}}></div>現金 {totalAssets > 0 ? (totalCash/totalAssets*100).toFixed(1) : 0}%</span>
+                            </div>
+                            <div>
+                                <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wide">股票族群分佈</h3>
+                                <div className="space-y-2">
+                                    {groupStats.length > 0 ? groupStats.map(g => (
+                                        <div key={g.name} className="flex items-center gap-2 text-xs">
+                                            <div className="w-20 text-gray-600 truncate text-right">{g.name}</div>
+                                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                <div style={{width: `${g.pct}%`, backgroundColor: g.color}} className="h-full rounded-full"></div>
+                                            </div>
+                                            <div className="w-10 text-right font-medium text-gray-700">{Math.round(g.pct)}%</div>
+                                        </div>
+                                    )) : <div className="text-xs text-gray-400 text-center py-2">無股票部位</div>}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* AI Section */}
+                        {!isEditing && (
+                            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-4 border border-purple-100 shadow-sm relative overflow-hidden">
+                                <Sparkles className="absolute -right-4 -top-4 text-purple-200 opacity-50" size={80} />
+                                <div className="relative z-10">
+                                    <h2 className="text-purple-800 font-bold flex items-center gap-2 mb-2"><Sparkles size={18} className="fill-purple-400 text-purple-600"/> AI 助理</h2>
+                                    {aiAnalysis ? (
+                                        <div className="space-y-3 animate-in">
+                                            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl text-sm text-gray-700 leading-relaxed shadow-sm">{aiAnalysis}</div>
+                                            <div className="flex gap-2">
+                                                <button onClick={playTTS} disabled={isGeneratingAI} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${isPlayingAudio ? 'bg-red-100 text-red-600' : 'bg-purple-600 text-white hover:bg-purple-700'}`}>
+                                                    {isGeneratingAI ? <Loader className="animate-spin" size={14} /> : isPlayingAudio ? <><StopCircle size={14} /> 停止</> : <><Volume2 size={14} /> 播報</>}
+                                                </button>
+                                                <button onClick={generateAIInsight} disabled={isGeneratingAI} className="px-3 py-2 bg-white text-purple-600 border border-purple-200 rounded-xl text-xs font-bold hover:bg-purple-50">重新</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex justify-between items-center">
+                                            <p className="text-xs text-purple-600/80 max-w-[60%]">生成今日投資快報</p>
+                                            <button onClick={generateAIInsight} disabled={isGeneratingAI} className="bg-white text-purple-600 border border-purple-200 shadow-sm px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-50 flex items-center gap-2 transition-all">
+                                                {isGeneratingAI ? <Loader className="animate-spin" size={14} /> : <Sparkles size={14} />} 分析
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Block 2: Stocks */}
+                        <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.red}}>
+                            <div className="flex flex-col gap-3 mb-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-gray-700 font-bold flex items-center gap-2"><PieIcon size={18} className="text-red-500"/> 股票部位</h2>
+                                    <span className="text-xs text-gray-400">市值: {formatMoney(totalStockValue)}</span>
+                                </div>
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                    <span className="text-xs font-bold text-gray-500 whitespace-nowrap flex items-center"><ArrowUpDown size={12} className="mr-1"/>排序:</span>
+                                    <button onClick={() => handleSort('type')} disabled={isEditing} className={`px-2 py-1 rounded text-xs whitespace-nowrap border transition-colors ${sortConfig.key === 'type' && !isEditing ? 'bg-red-50 text-red-600 border-red-200 font-bold' : 'bg-white text-gray-600 border-gray-200 disabled:opacity-50'}`}>族群</button>
+                                    <button onClick={() => handleSort('marketValue')} disabled={isEditing} className={`px-2 py-1 rounded text-xs whitespace-nowrap border transition-colors ${sortConfig.key === 'marketValue' && !isEditing ? 'bg-red-50 text-red-600 border-red-200 font-bold' : 'bg-white text-gray-600 border-gray-200 disabled:opacity-50'}`}>市值</button>
+                                    <button onClick={() => handleSort('account')} disabled={isEditing} className={`px-2 py-1 rounded text-xs whitespace-nowrap border transition-colors ${sortConfig.key === 'account' && !isEditing ? 'bg-red-50 text-red-600 border-red-200 font-bold' : 'bg-white text-gray-600 border-gray-200 disabled:opacity-50'}`}>帳戶</button>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <div className="bg-red-50 p-3 rounded-xl border border-red-100">
+                                    <div className="text-xs text-gray-500 mb-1">土銀</div>
+                                    <div className="font-bold text-gray-800 text-lg">${formatMoney(landBankStockValue)}</div>
+                                </div>
+                                <div className="bg-red-50 p-3 rounded-xl border border-red-100">
+                                    <div className="text-xs text-gray-500 mb-1">口袋</div>
+                                    <div className="font-bold text-gray-800 text-lg">${formatMoney(pocketStockValue)}</div>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                                        <tr>
+                                            <th className="px-1 py-2 font-medium w-1/3">名稱/類別/代號</th>
+                                            <th className="px-1 py-2 font-medium text-right w-1/4">{isEditing ? '帳戶/股數' : '淨值'}</th>
+                                            <th className="px-1 py-2 font-medium text-right w-1/4">損益/佔比</th>
+                                            {isEditing && <th className="px-1 py-2 font-medium w-8">刪</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {finalStockList.map((stock) => (
+                                            <tr key={stock._ui_id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
+                                                <td className="px-1 py-3 align-top">
+                                                    {isEditing ? (
+                                                        <div className="flex flex-col gap-2">
+                                                            <div className="flex gap-1">
+                                                                <input className="w-12 text-[10px] text-gray-500 border border-gray-300 rounded px-1 py-0.5 text-center bg-gray-50" value={stock.id} onChange={(e) => updateStockLocal(stock._ui_id, 'id', e.target.value)} placeholder="ID" />
+                                                                 <input className="flex-1 text-xs font-bold border border-gray-300 rounded px-1 py-0.5" value={stock.name} onChange={(e) => updateStockLocal(stock._ui_id, 'name', e.target.value)} placeholder="名稱" />
+                                                            </div>
+                                                            <input className="w-full text-[10px] text-blue-600 border border-blue-200 bg-blue-50 rounded px-1 py-0.5" value={stock.type} onChange={(e) => updateStockLocal(stock._ui_id, 'type', e.target.value)} placeholder="輸入類別" />
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <div className="font-bold text-gray-800 text-sm">{stock.name}</div>
+                                                            <div className="flex gap-1 mt-1">
+                                                                <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500">{stock.id}</span>
+                                                                <span className="text-[10px] bg-blue-50 text-blue-600 px-1 rounded border border-blue-100">{stock.type}</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-1 py-3 text-right align-top font-mono">
+                                                    {isEditing ? (
+                                                        <div className="flex flex-col gap-2 items-end">
+                                                            <select className="text-xs border border-gray-300 rounded px-1 py-0.5" value={stock.account} onChange={(e) => updateStockLocal(stock._ui_id, 'account', e.target.value)}>
+                                                                <option value="口袋">口袋</option><option value="土銀">土銀</option>
+                                                            </select>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-[10px] text-gray-400">股</span>
+                                                                <input type="number" className="w-16 border border-blue-300 rounded px-1 text-right bg-blue-50 focus:ring-1 focus:ring-blue-500 outline-none font-bold" value={stock.shares} onChange={(e) => updateStockLocal(stock._ui_id, 'shares', Number(e.target.value))} />
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-400">現價: {stock.price}</div>
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <div className="font-medium text-gray-800">${formatMoney(stock.marketValue)}</div>
+                                                            <div className="text-[10px] text-gray-400">{stock.account} · {stock.shares}股</div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-1 py-3 text-right align-top">
+                                                     <div className="flex flex-col items-end">
+                                                        <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
+                                                        <span className={`text-[10px] mt-0.5 ${getDiffColor(stock.dailyDiff)}`}>
+                                                           {/* Only show diff if yesterdayPrice is available and non-zero */}
+                                                           {stock.yesterdayPrice > 0 ? (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff) : '-'}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                {isEditing && (
+                                                    <td className="px-1 py-3 align-middle text-center">
+                                                        <button onClick={() => handleDeleteClick(stock._ui_id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {isEditing && (
+                                    <button onClick={handleAddStock} className="w-full mt-3 py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-400 hover:border-blue-400 hover:text-blue-500 flex items-center justify-center gap-2 transition-colors"><Plus size={18} /> 新增持股</button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Block 3: Cash */}
+                        <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.yellow}}>
+                            <h2 className="text-gray-700 font-bold mb-3 flex items-center gap-2"><DollarSign size={18} className="text-yellow-500"/> 現金部位 <span className="text-xs font-normal text-gray-400 ml-auto">總現金: {formatMoney(totalCash)}</span></h2>
+                            <div className="space-y-3">
+                                {['landBank', 'pocket'].map(acc => (
+                                    <div key={acc} className="p-3 bg-yellow-50 rounded-xl">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-gray-600 font-medium flex items-center gap-1">{acc === 'landBank' ? '土銀帳戶' : '口袋帳戶'} {isEditing && <span className="text-[10px] bg-blue-100 text-blue-600 px-1 rounded">編輯</span>}</span>
+                                            <span className="font-bold text-gray-800 text-lg">${formatMoney(cash[acc])}</span>
+                                        </div>
+                                        {isEditing && (
+                                            <div className="mt-2 flex items-center gap-2 bg-white p-2 rounded-lg border border-yellow-200">
+                                                <Calculator size={16} className="text-gray-400"/>
+                                                <input type="number" placeholder="+/-" className="flex-1 text-sm outline-none text-gray-700 placeholder-gray-300 bg-transparent" value={settlement[acc] || ''} onChange={(e) => setSettlement({...settlement, [acc]: e.target.value})} />
+                                                <button onClick={() => handleSettlement(acc)} className="bg-yellow-500 text-white text-xs px-3 py-1.5 rounded-md hover:bg-yellow-600 font-medium">更新</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Edit Mode Footer */}
+                        {isEditing && (
+                            <div className="fixed bottom-4 left-0 right-0 px-4 z-30">
+                                <div className="bg-blue-600 text-white p-3 rounded-xl shadow-xl flex justify-between items-center animate-in">
+                                    <span className="font-bold text-sm">編輯模式開啟中</span>
+                                    <button onClick={toggleEditMode} className="bg-white text-blue-600 px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-1">{isLoading ? '同步中...' : '完成並儲存'}</button>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
