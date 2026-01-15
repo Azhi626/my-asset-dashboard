@@ -1,819 +1,663 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, PieChart as PieIcon, Calendar, Edit2, Save, Plus, Trash2, Calculator, Layers, Sparkles, Volume2, StopCircle, Loader, RefreshCw } from 'lucide-react';
-
-// Google Material Colors
-const COLORS = {
-  blue: '#4285F4',
-  red: '#EA4335',
-  yellow: '#FBBC05',
-  green: '#34A853',
-  gray: '#F1F3F4',
-  darkGray: '#5F6368',
-  white: '#FFFFFF',
-  text: '#202124'
-};
-
-// --- 請在此填入您的 GAS Web App URL ---
-const API_URL = ""; 
-// 例如: "https://script.google.com/macros/s/AKfycbx.../exec"
-
-const PortfolioTracker = () => {
-  // 模擬當前日期
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}/${today.getMonth() + 1}/${today.getDate()}`;
-  const weekDay = ['日', '一', '二', '三', '四', '五', '六'][today.getDay()];
-
-  // Gemini API Key (由執行環境注入)
-  const apiKey = ""; 
-
-  // --- State ---
-  const [loading, setLoading] = useState(false); // 全域讀取狀態
-  const [syncing, setSyncing] = useState(false); // 背景同步狀態
-
-  const STORAGE_KEYS = {
-    apiUrl: 'stock_recording_api_url',
-    sheetUrl: 'stock_recording_sheet_url'
-  };
-
-  const getStoredValue = (key, fallback = "") => {
-    try {
-      return localStorage.getItem(key) || fallback;
-    } catch (error) {
-      console.warn("LocalStorage Error:", error);
-      return fallback;
-    }
-  };
-
-  const [apiUrlInput, setApiUrlInput] = useState(() => getStoredValue(STORAGE_KEYS.apiUrl, API_URL));
-  const [sheetUrlInput, setSheetUrlInput] = useState(() => getStoredValue(STORAGE_KEYS.sheetUrl, ""));
-  const [apiUrlSetting, setApiUrlSetting] = useState(() => getStoredValue(STORAGE_KEYS.apiUrl, API_URL));
-  const [sheetUrlSetting, setSheetUrlSetting] = useState(() => getStoredValue(STORAGE_KEYS.sheetUrl, ""));
-
-  // 預設資料 (在讀取完成前顯示，或讀取失敗時的備案)
-  const [cash, setCash] = useState({
-    landBank: 0,
-    pocket: 0,
-  });
-
-  const [stocks, setStocks] = useState([]);
-  
-  // 昨日資產 (從後端抓取)
-  const [prevDayTotalAssets, setPrevDayTotalAssets] = useState(0);
-
-  // 交割金額暫存 (用於編輯模式)
-  const [settlement, setSettlement] = useState({
-    landBank: 0,
-    pocket: 0
-  });
-
-  const [isEditing, setIsEditing] = useState(false);
-
-  /*
-  // AI 相關 State
-  const [aiAnalysis, setAiAnalysis] = useState("");
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const audioRef = useRef(null);
-  */
-
-  // --- API Integration Functions ---
-
-  const apiUrl = apiUrlSetting || API_URL;
-
-  // 1. 抓取資料 (Read)
-  const fetchData = async (overrideUrl) => {
-    const targetUrl = overrideUrl || apiUrl;
-    if (!targetUrl) return;
-    setLoading(true);
-    try {
-      const response = await fetch(`${targetUrl}?action=getData`);
-      const data = await response.json();
-      
-      setStocks(data.stocks);
-      setCash(data.cash);
-      setPrevDayTotalAssets(data.prevDayTotalAssets);
-    } catch (error) {
-      console.error("Fetch Data Error:", error);
-      alert("讀取資料失敗，請檢查網路或 API URL");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 2. 通用後端呼叫 (Write)
-  const callBackend = async (payload) => {
-    if (!apiUrl) return;
-    setSyncing(true);
-    try {
-      // 使用 text/plain 避免 CORS preflight 問題，後端需用 JSON.parse 解析
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify(payload)
-      });
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        // 更新成功後，直接使用後端回傳的最新完整資料同步前端
-        setStocks(result.data.stocks);
-        setCash(result.data.cash);
-        setPrevDayTotalAssets(result.data.prevDayTotalAssets);
-      } else {
-        throw new Error(result.message);
-      }
-    } catch (error) {
-      console.error("Backend Sync Error:", error);
-      alert("同步失敗: " + error.message);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  // 初始載入
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  // --- Calculations ---
-
-  // 1. 現金加總
-  const totalCash = cash.landBank + cash.pocket;
-
-  // 2. 股票計算
-  const stockDetails = stocks.map(stock => {
-    // 若後端還沒抓到 LastPrice (例如剛新增)，暫時用 0 或成本價
-    const currentPrice = stock.price || 0;
-    const prevPrice = stock.prevPrice || currentPrice; // 若無昨日價，暫用今日價避免除以零
-
-    const marketValue = stock.shares * currentPrice;
-    const prevMarketValue = stock.shares * prevPrice;
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <!-- [iOS 優化] viewport-fit=cover 讓內容延伸到瀏海區，user-scalable=no 禁止縮放 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
-    // 每日損益 ($)
-    const dailyDiff = marketValue - prevMarketValue;
+    <!-- [PWA 設定] 讓它像個 App -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f3f4f6">
+    <title>鈔能力雷達 v3.2.0</title>
     
-    // 漲跌幅邏輯
-    const dailyDiffPercent = prevMarketValue !== 0 ? ((marketValue - prevMarketValue) / prevMarketValue) * 100 : 0;
-    
-    // MoM (暫時隨機，後端完整後可實作真實 MoM)
-    const momPercent = (Math.random() * 10 - 5).toFixed(2); 
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-    return {
-      ...stock,
-      price: currentPrice, // 確保有值
-      marketValue,
-      prevMarketValue,
-      dailyDiff,
-      dailyDiffPercent,
-      momPercent
-    };
-  });
+    <!-- App Icons -->
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBzdHlsZT0iYmFja2dyb3VuZC1jb2xvcjojNDI4NUY0O2JvcmRlci1yYWRpdXM6MjAlIj48cGF0aCBkPSJNMjU2IDMyYTIyNCAyMjQgMCAxIDEgMCA0NDggMjI0IDIyNCAwIDEgMSAwLTQ0OHptMCA0MTZhMTkyIDE5MiAwIDEgMCAwLTM4NCAxOTIgMTkyIDAgMSAwIDAtMzg0eiIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNTYgOTZhMTYwIDE2MCAwIDEgMSAwIDMyMCAxNjAgMTYwIDAgMSAxIDAtMzIwem0wIDI4OGExMjggMTI4IDAgMSAwIDAtMjU2IDEyOCAxMjggMCAxIDAgMCAyNTZ6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjMiLz48cGF0aCBkPSJNMjU2IDE2MGE5NiA5NiAwIDEgMSAwIDE5MiA5NiA5NiAwIDEgMSAwLTE5MnptMCAxNjBhNjQgNjQgMCAxIDAgMC0xMjggNjQgNjQgMCAxIDAgMCAxMjh6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjUiLz48cGF0aCBkPSJNMjU2IDExMnYxNDRsMTAxLjhMNDY0IDI1NmExOTIgMTkyIDAgMCAxLTIwOCAxOTJWMTEyeiIgZmlsbD0iI2ZmZiIgLz48L3N2Zz4=">
+    <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBzdHlsZT0iYmFja2dyb3VuZC1jb2xvcjojNDI4NUY0Ij48cGF0aCBkPSJNMjU2IDMyYTIyNCAyMjQgMCAxIDEgMCA0NDggMjI0IDIyNCAwIDEgMSAwLTQ0OHptMCA0MTZhMTkyIDE5MiAwIDEgMCAwLTM4NCAxOTIgMTkyIDAgMSAwIDAtMzg0eiIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNTYgOTZhMTYwIDE2MCAwIDEgMSAwIDMyMCAxNjAgMTYwIDAgMSAxIDAtMzIwem0wIDI4OGExMjggMTI4IDAgMSAwIDAtMjU2IDEyOCAxMjggMCAxIDAgMCAyNTZ6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjMiLz48cGF0aCBkPSJNMjU2IDE2MGE5NiA5NiAwIDEgMSAwIDE5MiA5NiA5NiAwIDEgMSAwLTE5MnptMCAxNjBhNjQgNjQgMCAxIDAgMC0xMjggNjQgNjQgMCAxIDAgMCAxMjh6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjUiLz48cGF0aCBkPSJNMjU2IDExMnYxNDRsMTAxLjhMNDY0IDI1NmExOTIgMTkyIDAgMCAxLTIwOCAxOTJWMTEyeiIgZmlsbD0iI2ZmZiIgLz48L3N2Zz4=">
 
-  // 3. 總股票市值
-  const totalStockValue = stockDetails.reduce((acc, curr) => acc + curr.marketValue, 0);
-  
-  // 4. 總資產
-  const totalAssets = totalCash + totalStockValue;
-  
-  // 5. 總體每日變化
-  const dailyAssetDiff = totalAssets - prevDayTotalAssets;
-  const dailyAssetDiffPercent = prevDayTotalAssets !== 0 ? (dailyAssetDiff / prevDayTotalAssets) * 100 : 0;
+    <!-- [新功能] PWA Manifest (Data URI) 強制宣告為獨立 App -->
+    <link rel="manifest" href='data:application/manifest+json,{"name":"鈔能力雷達","short_name":"鈔能力","display":"standalone","background_color":"#f3f4f6","theme_color":"#f3f4f6","icons":[{"src":"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBzdHlsZT0iYmFja2dyb3VuZC1jb2xvcjojNDI4NUY0Ij48cGF0aCBkPSJNMjU2IDMyYTIyNCAyMjQgMCAxIDEgMCA0NDggMjI0IDIyNCAwIDEgMSAwLTQ0OHptMCA0MTZhMTkyIDE5MiAwIDEgMCAwLTM4NCAxOTIgMTkyIDAgMSAwIDAtMzg0eiIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNTYgOTZhMTYwIDE2MCAwIDEgMSAwIDMyMCAxNjAgMTYwIDAgMSAxIDAtMzIwem0wIDI4OGExMjggMTI4IDAgMSAwIDAtMjU2IDEyOCAxMjggMCAxIDAgMCAyNTZ6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjMiLz48cGF0aCBkPSJNMjU2IDE2MGE5NiA5NiAwIDEgMSAwIDE5MiA5NiA5NiAwIDEgMSAwLTE5MnptMCAxNjBhNjQgNjQgMCAxIDAgMC0xMjggNjQgNjQgMCAxIDAgMCAxMjh6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjUiLz48cGF0aCBkPSJNMjU2IDExMnYxNDRsMTAxLjhMNDY0IDI1NmExOTIgMTkyIDAgMCAxLTIwOCAxOTJWMTEyeiIgZmlsbD0iI2ZmZiIgLz48L3N2Zz4=","sizes":"192x192","type":"image/svg+xml"}]}'>
 
-  // 6. 計算佔比與貢獻度
-  const finalStockList = stockDetails.map(stock => ({
-    ...stock,
-    ratio: totalStockValue !== 0 ? (stock.marketValue / totalStockValue) * 100 : 0,
-    contributionPercent: prevDayTotalAssets !== 0 ? (stock.dailyDiff / prevDayTotalAssets) * 100 : 0
-  }));
+    <style>
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-tap-highlight-color: transparent; }
+        /* 適配 iPhone 瀏海與底部 Home Bar */
+        body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.5s ease-out forwards; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .prose p { margin-bottom: 0.5em; }
+        .prose strong { color: #4285F4; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
 
-  // 分帳戶統計
-  const landBankStockValue = finalStockList.filter(s => s.account === '土銀').reduce((acc, s) => acc + s.marketValue, 0);
-  const pocketStockValue = finalStockList.filter(s => s.account === '口袋').reduce((acc, s) => acc + s.marketValue, 0);
+    <script type="text/babel">
+        // ---------------------------------------------------------
+        // [設定區] 
+        // ---------------------------------------------------------
+        const DEFAULT_GAS_URL = ''; 
+        // ---------------------------------------------------------
 
-  // --- Handlers ---
+        const { useState, useEffect, useMemo, useRef } = React;
 
-  const handleAddStock = async () => {
-    const newStock = { 
-      id: '2330', 
-      name: '新持股', 
-      type: '未分類', 
-      account: '土銀', 
-      shares: 0, 
-      price: 0
-    };
-    // 樂觀更新 (Optimistic UI): 先在前端顯示，感覺比較快
-    setStocks([...stocks, newStock]); 
-    // 背景同步
-    await callBackend({ action: 'addStock', stock: newStock });
-  };
+        // --- Constants ---
+        const CACHE_KEY = 'money_radar_cache_v3';
+        const COLORS = {
+            blue: '#4285F4', red: '#EA4335', yellow: '#FBBC05', green: '#34A853',
+            gray: '#F1F3F4', darkGray: '#5F6368', white: '#FFFFFF', text: '#202124',
+            palette: ['#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8AB4F8', '#F28B82', '#FDD663', '#81C995', '#F06292', '#BA68C8']
+        };
 
-  const handleRemoveStock = async (indexToRemove) => {
-    const targetStock = stocks[indexToRemove];
-    if (window.confirm(`確定要刪除 ${targetStock.name} 嗎？`)) {
-      // 樂觀更新
-      setStocks(stocks.filter((_, index) => index !== indexToRemove));
-      // 背景同步
-      await callBackend({ action: 'deleteStock', stockId: targetStock.id, account: targetStock.account });
-    }
-  };
-
-  const updateStockLocal = (index, field, value) => {
-    // 只更新本地 State，不打 API，避免打字時頻繁送出請求
-    const newStocks = [...stocks];
-    newStocks[index] = { ...newStocks[index], [field]: value };
-    setStocks(newStocks);
-  };
-
-  // 切換編輯模式 / 儲存邏輯
-  const toggleEditMode = async () => {
-    if (isEditing) {
-      // 從 編輯 -> 儲存 : 觸發 API 更新
-      // 注意：這裡為了確保資料完整，我們會把所有更動過的股票都送一次更新
-      // 但為了配合後端簡單邏輯，我們這裡逐一更新 (量大時可優化為批次更新)
-      if (!apiUrl) {
-        alert("請先設定 GAS URL");
-        return;
-      }
-      setSyncing(true);
-      try {
-        // 簡單起見，我們假設使用者可能修改了任何股票，這在少量持股時沒問題
-        // 為了效能，我們只對有變動的發送請求會更好，但這邊先做全面同步確保安全
-        const promises = stocks.map(stock => 
-          fetch(apiUrl, {
-            method: 'POST',
-             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'updateStock', stock: stock })
-          })
+        // --- Icons ---
+        const IconBase = ({ children, color = "currentColor", size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
         );
-        await Promise.all(promises);
-        
-        // 全部存完後，重新抓一次確保一致性
-        fetchData();
-        
-      } catch (e) {
-        console.error("Save Error", e);
-        alert("儲存部分資料時發生錯誤");
-      } finally {
-        setSyncing(false);
-      }
-    }
-    setIsEditing(!isEditing);
-  };
+        const PieIcon = (props) => <IconBase {...props}><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10z" /></IconBase>;
+        const TrendingUp = (props) => <IconBase {...props}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></IconBase>;
+        const TrendingDown = (props) => <IconBase {...props}><polyline points="22 17 13.5 8.5 8.5 13.5 2 7" /><polyline points="16 17 22 17 22 11" /></IconBase>;
+        const Save = (props) => <IconBase {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></IconBase>;
+        const Edit2 = (props) => <IconBase {...props}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></IconBase>;
+        const Trash2 = (props) => <IconBase {...props}><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></IconBase>;
+        const Plus = (props) => <IconBase {...props}><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></IconBase>;
+        const DollarSign = (props) => <IconBase {...props}><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></IconBase>;
+        const Calculator = (props) => <IconBase {...props}><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="14"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="8" y1="14" x2="8" y2="14"></line><line x1="16" y1="18" x2="16" y2="18"></line><line x1="12" y1="18" x2="12" y2="18"></line><line x1="8" y1="18" x2="8" y2="18"></line></IconBase>;
+        const Calendar = (props) => <IconBase {...props}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></IconBase>;
+        const RefreshCw = (props) => <IconBase {...props}><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></IconBase>;
+        const Sparkles = (props) => <IconBase {...props}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></IconBase>;
+        const Loader = (props) => <IconBase {...props}><path d="M12 2v4"></path><path d="m16.2 7.8 2.9-2.9"></path><path d="M18 12h4"></path><path d="m16.2 16.2 2.9 2.9"></path><path d="M12 18v4"></path><path d="m4.9 19.1 2.9-2.9"></path><path d="M2 12h4"></path><path d="m4.9 4.9 2.9 2.9"></path></IconBase>;
+        const StopCircle = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"></circle><rect x="9" y="9" width="6" height="6"></rect></IconBase>;
+        const Volume2 = (props) => <IconBase {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></IconBase>;
+        const ArrowUpDown = (props) => <IconBase {...props}><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></IconBase>;
+        const Settings = (props) => <IconBase {...props}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></IconBase>;
+        const Check = (props) => <IconBase {...props}><polyline points="20 6 9 17 4 12"></polyline></IconBase>;
+        const Key = (props) => <IconBase {...props}><path d="m21 2-2 2m-7.6 7.6a6 6 0 1 1-3.4-3.4l8.3-8.3 3.3 3.3-1.3 1.3-3.3-3.3z" /><path d="m13.4 13.4 3.3 3.3" /><path d="m16.8 16.8 3.3 3.3" /></IconBase>;
 
-  const handleSettlement = async (account) => {
-    const amount = Number(settlement[account]);
-    if (amount !== 0) {
-      // 樂觀更新
-      setCash(prev => ({ ...prev, [account]: prev[account] + amount }));
-      setSettlement(prev => ({ ...prev, [account]: 0 }));
-      
-      // 背景同步
-      await callBackend({ action: 'updateCash', account, amount, type: 'add' });
-    }
-  };
+        // --- Helper: Generate Simple ID ---
+        const generateId = () => Math.random().toString(36).substr(2, 9);
 
-  const saveConnectionSettings = () => {
-    const nextApiUrl = apiUrlInput.trim();
-    const nextSheetUrl = sheetUrlInput.trim();
+        // --- Mock Data ---
+        const MOCK_DATA = {
+            stocks: [
+                { _ui_id: 'a1', id: '2330', name: '台積電', type: '半導體', account: '口袋', shares: 1000, price: 580, yesterdayPrice: 575 },
+                { _ui_id: 'a2', id: '0050', name: '元大台灣50', type: 'ETF', account: '土銀', shares: 2000, price: 135, yesterdayPrice: 136 },
+            ],
+            cash: { landBank: 48279, pocket: 453 },
+            lastHistory: { totalAssets: 1000000 }
+        };
 
-    setApiUrlSetting(nextApiUrl);
-    setSheetUrlSetting(nextSheetUrl);
-
-    try {
-      if (nextApiUrl) localStorage.setItem(STORAGE_KEYS.apiUrl, nextApiUrl);
-      else localStorage.removeItem(STORAGE_KEYS.apiUrl);
-
-      if (nextSheetUrl) localStorage.setItem(STORAGE_KEYS.sheetUrl, nextSheetUrl);
-      else localStorage.removeItem(STORAGE_KEYS.sheetUrl);
-    } catch (error) {
-      console.warn("LocalStorage Save Error:", error);
-    }
-
-    if (nextApiUrl) {
-      fetchData(nextApiUrl);
-    }
-  };
-
-  const openSheetLink = () => {
-    const url = sheetUrlSetting.trim();
-    if (!url) {
-      alert("請先在連線設定中填入試算表連結");
-      return;
-    }
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  /*
-  // --- Gemini AI Functions (Keep existing logic) ---
-  const generateAIInsight = async () => {
-    if (!apiKey) {
-      alert("請先設定 API Key 才能使用 AI 功能");
-      return;
-    }
-
-    setIsGeneratingAI(true);
-    setAiAnalysis("");
-    if (audioRef.current) {
-        audioRef.current.pause();
-        setIsPlayingAudio(false);
-    }
-
-    try {
-      const portfolioSummary = {
-        totalAssets,
-        dailyDiff: dailyAssetDiff,
-        dailyDiffPercent: dailyAssetDiffPercent.toFixed(2),
-        topGainers: finalStockList
-          .filter(s => s.dailyDiff > 0)
-          .sort((a, b) => b.dailyDiff - a.dailyDiff)
-          .slice(0, 2)
-          .map(s => `${s.name}(+${formatMoney(s.dailyDiff)})`),
-        topLosers: finalStockList
-          .filter(s => s.dailyDiff < 0)
-          .sort((a, b) => a.dailyDiff - b.dailyDiff) // sort ascending for negative
-          .slice(0, 2)
-          .map(s => `${s.name}(${formatMoney(s.dailyDiff)})`),
-      };
-
-      const prompt = `
-        你是用戶的個人AI理財管家。
-        根據以下今日資產數據，請用繁體中文生成一段約80-100字的「今日戰情摘要」。
-        數據：總資產 ${formatMoney(portfolioSummary.totalAssets)}，
-        今日變化 ${portfolioSummary.dailyDiff > 0 ? '+' : ''}${formatMoney(portfolioSummary.dailyDiff)} (${portfolioSummary.dailyDiffPercent}%)。
-        主要獲利：${portfolioSummary.topGainers.join(', ') || '無'}。
-        主要虧損：${portfolioSummary.topLosers.join(', ') || '無'}。
-        要求：語氣專業幽默，先講總結，再點評個股。如果是賺錢恭喜，賠錢給信心。直接輸出純文字。
-      `;
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-
-      const data = await response.json();
-      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || "無法生成分析報告。";
-      setAiAnalysis(generatedText);
-
-    } catch (error) {
-      console.error("AI Error:", error);
-      setAiAnalysis("AI 連線錯誤。");
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
-
-  const playTTS = async () => {
-    if (!aiAnalysis) return;
-    if (isPlayingAudio && audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        setIsPlayingAudio(false);
-        return;
-    }
-    setIsGeneratingAI(true);
-    try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: aiAnalysis }] }],
-                generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }
-            })
-        });
-        const data = await response.json();
-        const audioContent = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (audioContent) {
-            const binaryString = atob(audioContent);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-            const wavBytes = addWavHeader(bytes, 24000, 1, 16);
-            const blob = new Blob([wavBytes], { type: 'audio/wav' });
-            const url = URL.createObjectURL(blob);
-            if (audioRef.current) {
-                audioRef.current.src = url;
-                audioRef.current.play();
-                setIsPlayingAudio(true);
-                audioRef.current.onended = () => setIsPlayingAudio(false);
-            }
-        }
-    } catch (error) { alert("語音生成失敗"); } finally { setIsGeneratingAI(false); }
-  };
-
-  // WAV Header Helper
-  const addWavHeader = (pcmData, sampleRate, numChannels, bitDepth) => {
-    const header = new ArrayBuffer(44);
-    const view = new DataView(header);
-    const writeString = (view, offset, string) => { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); };
-    writeString(view, 0, 'RIFF'); view.setUint32(4, 36 + pcmData.length, true); writeString(view, 8, 'WAVE'); writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true); view.setUint16(32, numChannels * (bitDepth / 8), true);
-    view.setUint16(34, bitDepth, true); writeString(view, 36, 'data'); view.setUint32(40, pcmData.length, true);
-    const wavData = new Uint8Array(header.byteLength + pcmData.length);
-    wavData.set(new Uint8Array(header), 0); wavData.set(pcmData, header.byteLength);
-    return wavData;
-  };
-  */
-
-  // --- Helpers ---
-  const formatMoney = (num) => new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 }).format(Math.round(num));
-  const formatPercent = (num) => `${Number(num).toFixed(2)}%`;
-  
-  const getDiffColor = (val) => {
-    if (val > 0) return 'text-red-600'; 
-    if (val < 0) return 'text-green-600'; 
-    return 'text-gray-400';
-  };
-
-  if (loading && stocks.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-3">
-        <Loader className="animate-spin text-blue-500" size={32} />
-        <p className="text-gray-500 text-sm font-medium">正在連線至鈔能力資料庫...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 font-sans pb-24">
-      {/* Invisible Audio Element */}
-      {/* <audio ref={audioRef} className="hidden" /> */}
-
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200">
-        <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
-          <div>
-            <button
-              type="button"
-              onClick={openSheetLink}
-              className="text-xl font-bold text-gray-800 flex items-center gap-2 hover:opacity-80 transition"
-              title="開啟試算表連結"
-            >
-              <span style={{color: COLORS.blue}}>鈔</span> 
-              <span style={{color: COLORS.green}}>能力</span>
-              <span style={{color: COLORS.red}}>雷達</span>
-            </button>
-            <div className="flex items-center gap-2">
-               <p className="text-xs text-gray-500 flex items-center gap-1">
-                <Calendar size={12} /> {dateStr} ({weekDay})
-              </p>
-              {syncing && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded flex items-center gap-1"><RefreshCw size={8} className="animate-spin"/> 同步中</span>}
-            </div>
-          </div>
-          <button 
-            onClick={toggleEditMode}
-            disabled={syncing}
-            className={`p-2 rounded-full transition-all duration-300 ${isEditing ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-400' : 'bg-gray-100 text-gray-600'}`}
-          >
-            {isEditing ? <Save size={20} /> : <Edit2 size={20} />}
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-md mx-auto px-4 py-4 space-y-4">
-
-        {/* 連線設定 */}
-        <div className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100">
-          <h2 className="text-gray-700 font-bold mb-3 flex items-center gap-2">
-            <Layers size={18} className="text-blue-500" /> 連線設定
-          </h2>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">GAS URL (Google Apps Script)</label>
-              <input
-                type="url"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="https://script.google.com/macros/s/.../exec"
-                value={apiUrlInput}
-                onChange={(e) => setApiUrlInput(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">試算表連結 (Google Sheets)</label>
-              <input
-                type="url"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="https://docs.google.com/spreadsheets/d/..."
-                value={sheetUrlInput}
-                onChange={(e) => setSheetUrlInput(e.target.value)}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={saveConnectionSettings}
-              className="w-full bg-blue-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-700 transition"
-            >
-              儲存並連線
-            </button>
-            <p className="text-[10px] text-gray-400">網址僅儲存在您的瀏覽器中</p>
-          </div>
-        </div>
-        
-        {/* ✨ AI 戰情室 */}
-        {/*
-        {!isEditing && (
-          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-4 border border-purple-100 shadow-sm relative overflow-hidden">
-             <Sparkles className="absolute -right-4 -top-4 text-purple-200 opacity-50" size={80} />
-             <div className="relative z-10">
-               <h2 className="text-purple-800 font-bold flex items-center gap-2 mb-2">
-                 <Sparkles size={18} className="fill-purple-400 text-purple-600"/>
-                 AI 智能理財助理
-               </h2>
-               
-               {aiAnalysis ? (
-                 <div className="space-y-3 animate-in fade-in duration-500">
-                   <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl text-sm text-gray-700 leading-relaxed shadow-sm">
-                     {aiAnalysis}
-                   </div>
-                   <div className="flex gap-2">
-                     <button 
-                       onClick={playTTS}
-                       disabled={isGeneratingAI}
-                       className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${isPlayingAudio ? 'bg-red-100 text-red-600' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
-                     >
-                       {isGeneratingAI && isPlayingAudio ? (
-                         <Loader className="animate-spin" size={14} />
-                       ) : isPlayingAudio ? <><StopCircle size={14} /> 停止播放</> : <><Volume2 size={14} /> 語音播報</>}
-                     </button>
-                      <button 
-                       onClick={generateAIInsight}
-                       disabled={isGeneratingAI}
-                       className="px-3 py-2 bg-white text-purple-600 border border-purple-200 rounded-xl text-xs font-bold hover:bg-purple-50"
-                     >
-                       重新分析
-                     </button>
-                   </div>
-                 </div>
-               ) : (
-                 <div className="flex justify-between items-center">
-                   <p className="text-xs text-purple-600/80 max-w-[60%]">
-                     讓 AI 根據今日盤後數據，為您生成專屬的投資快報。
-                   </p>
-                   <button 
-                     onClick={generateAIInsight}
-                     disabled={isGeneratingAI}
-                     className="bg-white text-purple-600 border border-purple-200 shadow-sm px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-50 flex items-center gap-2 transition-all"
-                   >
-                     {isGeneratingAI ? <Loader className="animate-spin" size={14} /> : <Sparkles size={14} />}
-                     生成分析
-                   </button>
-                 </div>
-               )}
-             </div>
-          </div>
-        )}
-        */}
-
-        {/* Block 1: 總體資產 */}
-        <div className="bg-white rounded-2xl shadow-sm p-5 border-l-4" style={{borderColor: COLORS.blue}}>
-          <div className="flex justify-between items-start mb-2">
-            <span className="text-gray-500 text-sm font-medium">總資產淨值</span>
-            <span className={`text-sm font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
-              {dailyAssetDiff > 0 ? <TrendingUp size={16} className="mr-1"/> : <TrendingDown size={16} className="mr-1"/>}
-              {formatPercent(dailyAssetDiffPercent)}
-            </span>
-          </div>
-          <div className="text-3xl font-extrabold text-gray-800 tracking-tight">
-            ${formatMoney(totalAssets)}
-          </div>
-          <div className={`text-sm mt-1 flex items-center gap-2 ${getDiffColor(dailyAssetDiff)}`}>
-            <span>今日變化: {dailyAssetDiff > 0 ? '+' : ''}{formatMoney(dailyAssetDiff)}</span>
-          </div>
-          
-          <div className="mt-4 flex h-3 w-full rounded-full overflow-hidden bg-gray-100">
-            <div style={{width: `${totalAssets > 0 ? (totalStockValue/totalAssets)*100 : 0}%`, backgroundColor: COLORS.blue}}></div>
-            <div style={{width: `${totalAssets > 0 ? (totalCash/totalAssets)*100 : 0}%`, backgroundColor: COLORS.yellow}}></div>
-          </div>
-          <div className="mt-2 flex justify-between text-xs text-gray-500">
-            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{background:COLORS.blue}}></div>股票 {totalAssets > 0 ? (totalStockValue/totalAssets*100).toFixed(1) : 0}%</span>
-            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{background:COLORS.yellow}}></div>現金 {totalAssets > 0 ? (totalCash/totalAssets*100).toFixed(1) : 0}%</span>
-          </div>
-        </div>
-
-        {/* Block 2: 股票部位 */}
-        <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.red}}>
-          <div className="flex justify-between items-center mb-3">
-             <h2 className="text-gray-700 font-bold flex items-center gap-2">
-              <PieIcon size={18} className="text-red-500"/> 股票部位
-            </h2>
-            <span className="text-xs text-gray-400">總市值: {formatMoney(totalStockValue)}</span>
-          </div>
-         
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-red-50 p-3 rounded-xl border border-red-100">
-              <div className="text-xs text-gray-500 mb-1">土銀證券</div>
-              <div className="font-bold text-gray-800 text-lg">${formatMoney(landBankStockValue)}</div>
-            </div>
-            <div className="bg-red-50 p-3 rounded-xl border border-red-100">
-              <div className="text-xs text-gray-500 mb-1">口袋證券</div>
-              <div className="font-bold text-gray-800 text-lg">${formatMoney(pocketStockValue)}</div>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="px-1 py-2 font-medium w-1/4">名稱/類別</th>
-                  <th className="px-1 py-2 font-medium text-right w-1/4">{isEditing ? '股數/價格' : '淨值'}</th>
-                  <th className="px-1 py-2 font-medium text-right w-1/4">每日損益</th>
-                  <th className="px-1 py-2 font-medium text-right w-1/4">資產佔比</th>
-                  {isEditing && <th className="px-1 py-2 font-medium w-8">刪</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {finalStockList.map((stock, index) => (
-                  <tr key={index} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
-                    <td className="px-1 py-3 align-top">
-                      {isEditing ? (
-                        <div className="flex flex-col gap-1">
-                          <input 
-                            className="w-full text-xs font-bold border border-gray-300 rounded px-1 py-0.5"
-                            value={stock.name}
-                            onChange={(e) => updateStockLocal(index, 'name', e.target.value)}
-                            placeholder="股名"
-                          />
-                          <input 
-                            className="w-full text-[10px] text-gray-500 border border-gray-300 rounded px-1 py-0.5"
-                            value={stock.type}
-                            onChange={(e) => updateStockLocal(index, 'type', e.target.value)}
-                            placeholder="類別"
-                          />
-                           <input 
-                            className="w-full text-[10px] text-gray-500 border border-gray-300 rounded px-1 py-0.5"
-                            value={stock.id}
-                            onChange={(e) => updateStockLocal(index, 'id', e.target.value)}
-                            placeholder="代號"
-                          />
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="font-bold text-gray-800">{stock.name}</div>
-                          <div className="text-[10px] bg-gray-100 inline-block px-1 rounded text-gray-500 mt-0.5">{stock.type}</div>
-                          <div className="text-[10px] text-gray-400">{stock.id}</div>
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="px-1 py-3 text-right align-top font-mono">
-                      {isEditing ? (
-                         <div className="flex flex-col gap-1 items-end">
-                           <div className="flex items-center gap-1">
-                             <span className="text-[10px] text-gray-400">股</span>
-                             <input 
-                              type="number" 
-                              className="w-16 border border-blue-300 rounded px-1 text-right bg-blue-50 focus:ring-1 focus:ring-blue-500 outline-none"
-                              value={stock.shares}
-                              onChange={(e) => updateStockLocal(index, 'shares', Number(e.target.value))}
-                            />
-                           </div>
-                           <div className="flex items-center gap-1">
-                             <span className="text-[10px] text-gray-400">$</span>
-                             <input 
-                              type="number" 
-                              className="w-16 border border-gray-300 rounded px-1 text-right bg-white focus:ring-1 focus:ring-blue-500 outline-none"
-                              value={stock.price}
-                              onChange={(e) => updateStockLocal(index, 'price', Number(e.target.value))}
-                            />
-                           </div>
-                        </div>
-                      ) : (
-                        <div>
-                           <div className="font-medium text-gray-800">${formatMoney(stock.marketValue)}</div>
-                           {stock.shares === 0 && <span className="text-[10px] text-gray-400">(已清倉)</span>}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className={`px-1 py-3 text-right align-top font-medium ${getDiffColor(stock.dailyDiff)}`}>
-                      <div className="flex flex-col items-end">
-                        <span>{stock.dailyDiff > 0 ? '+' : ''}{formatMoney(stock.dailyDiff)}</span>
-                        {stock.shares > 0 && Math.abs(stock.contributionPercent) > 0.01 && (
-                           <span className="text-[10px] opacity-80">
-                             貢獻 {stock.contributionPercent > 0 ? '+' : ''}{stock.contributionPercent.toFixed(2)}%
-                           </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="px-1 py-3 text-right align-top">
-                      <div className="font-medium text-gray-700">{formatPercent(stock.ratio)}</div>
-                      <div className={`text-[10px] ${getDiffColor(Number(stock.momPercent))}`}>
-                        MoM {stock.momPercent}%
-                      </div>
-                    </td>
-
-                    {isEditing && (
-                      <td className="px-1 py-3 align-middle text-center">
-                        <button 
-                          onClick={() => handleRemoveStock(index)}
-                          className="text-red-400 hover:text-red-600 p-1"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        // --- Main Component ---
+        const App = () => {
+            // --- State Initialization with Cache (SWR Pattern) ---
+            const [apiUrl, setApiUrl] = useState(() => DEFAULT_GAS_URL || localStorage.getItem('asset_api_url') || '');
+            const [aiKey, setAiKey] = useState(() => localStorage.getItem('gemini_api_key') || ''); 
             
-            {isEditing && (
-              <button 
-                onClick={handleAddStock}
-                className="w-full mt-3 py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-400 hover:border-blue-400 hover:text-blue-500 flex items-center justify-center gap-2 transition-colors"
-              >
-                <Plus size={18} /> 新增持股
-              </button>
-            )}
-          </div>
-        </div>
+            // Lazy load cache for instant display
+            const [stocks, setStocks] = useState(() => {
+                const cached = localStorage.getItem(CACHE_KEY);
+                return cached ? JSON.parse(cached).stocks : MOCK_DATA.stocks;
+            });
+            const [cash, setCash] = useState(() => {
+                const cached = localStorage.getItem(CACHE_KEY);
+                return cached ? JSON.parse(cached).cash : MOCK_DATA.cash;
+            });
+            const [prevDayTotalAssets, setPrevDayTotalAssets] = useState(() => {
+                const cached = localStorage.getItem(CACHE_KEY);
+                return cached ? JSON.parse(cached).prevDayTotalAssets : MOCK_DATA.lastHistory.totalAssets;
+            });
 
-        {/* Block 3: 現金部位 */}
-        <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.yellow}}>
-           <h2 className="text-gray-700 font-bold mb-3 flex items-center gap-2">
-            <DollarSign size={18} className="text-yellow-500"/> 現金部位
-            <span className="text-xs font-normal text-gray-400 ml-auto">總現金: {formatMoney(totalCash)}</span>
-          </h2>
-          
-           <div className="space-y-3">
-            <div className="p-3 bg-yellow-50 rounded-xl">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-gray-600 font-medium flex items-center gap-1">
-                  土銀帳戶
-                  {isEditing && <span className="text-[10px] bg-blue-100 text-blue-600 px-1 rounded">編輯中</span>}
-                </span>
-                <span className="font-bold text-gray-800 text-lg">${formatMoney(cash.landBank)}</span>
-              </div>
-              
-              {isEditing && (
-                <div className="mt-2 flex items-center gap-2 bg-white p-2 rounded-lg border border-yellow-200">
-                  <Calculator size={16} className="text-gray-400"/>
-                  <input 
-                    type="number" 
-                    placeholder="輸入交割金額 (+/-)"
-                    className="flex-1 text-sm outline-none text-gray-700 placeholder-gray-300"
-                    value={settlement.landBank || ''}
-                    onChange={(e) => setSettlement({...settlement, landBank: e.target.value})}
-                  />
-                  <button 
-                    onClick={() => handleSettlement('landBank')}
-                    className="bg-yellow-500 text-white text-xs px-3 py-1.5 rounded-md hover:bg-yellow-600 font-medium"
-                  >
-                    更新餘額
-                  </button>
+            // UseMock Logic: If no URL is set, force mock.
+            // If URL is set but we loaded from cache, we are NOT using mock, but we might be loading.
+            const [useMock, setUseMock] = useState(() => !apiUrl);
+            const [isLoading, setIsLoading] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
+            
+            // Interaction
+            const [isEditing, setIsEditing] = useState(false);
+            const [settlement, setSettlement] = useState({ landBank: 0, pocket: 0 }); 
+            const [deleteConfirm, setDeleteConfirm] = useState({ show: false, targetId: null }); 
+
+            // AI
+            const [aiAnalysis, setAiAnalysis] = useState("");
+            const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+            const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+
+            // Sorting
+            const [sortConfig, setSortConfig] = useState({ key: 'marketValue', direction: 'desc' });
+
+            useEffect(() => {
+                if (apiUrl && apiUrl.startsWith('http')) {
+                    setUseMock(false);
+                    // Fetch in background, UI is already hydrated from cache
+                    fetchData(apiUrl, true); // true = silent fetch (no full screen loading)
+                } else {
+                    if (!localStorage.getItem('asset_api_url')) setShowSettings(true); 
+                    setUseMock(true);
+                }
+            }, [apiUrl]);
+
+            const fetchData = async (url, silent = false) => {
+                if (!url) return;
+                if (!silent) setIsLoading(true);
+                
+                try {
+                    const response = await fetch(url);
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        const loadedStocks = result.stocks.map(s => ({
+                            ...s,
+                            _ui_id: generateId(),
+                            yesterdayPrice: Number(s.yesterdayPrice) || 0 
+                        }));
+                        const loadedCash = result.cash;
+                        const loadedHistory = result.lastHistory ? result.lastHistory.totalAssets : 0;
+
+                        setStocks(loadedStocks);
+                        setCash(loadedCash);
+                        if (result.lastHistory) {
+                            setPrevDayTotalAssets(loadedHistory);
+                        }
+
+                        // Save to Cache
+                        localStorage.setItem(CACHE_KEY, JSON.stringify({
+                            stocks: loadedStocks,
+                            cash: loadedCash,
+                            prevDayTotalAssets: loadedHistory,
+                            timestamp: new Date().getTime()
+                        }));
+                    }
+                } catch (error) {
+                    console.log("Fetch error (showing cached if available):", error);
+                    // Do not force mock if we have cache, just stay as is
+                }
+                setIsLoading(false);
+            };
+
+            const saveData = async () => {
+                if (useMock || !apiUrl) {
+                    alert("請先在設定中輸入 Google Apps Script 網址，才能儲存至後端。");
+                    setShowSettings(true);
+                    setIsEditing(false);
+                    return;
+                }
+                setIsLoading(true);
+                try {
+                    const payload = { stocks: stocks, cash: cash };
+                    await fetch(apiUrl, { method: 'POST', body: JSON.stringify(payload) });
+                    alert("儲存成功！今日資產紀錄已更新。");
+                    setIsEditing(false);
+                    fetchData(apiUrl);
+                } catch (error) {
+                    alert("儲存失敗: " + error.message);
+                }
+                setIsLoading(false);
+            };
+
+            const handleRefreshPrices = () => {
+                if (useMock || !apiUrl) return;
+                fetchData(apiUrl, false); // Trigger with loading spinner
+            };
+
+            const handleSaveSettings = () => {
+                const urlInput = document.getElementById('apiUrlInput').value;
+                const keyInput = document.getElementById('apiKeyInput').value;
+                
+                setApiUrl(urlInput);
+                localStorage.setItem('asset_api_url', urlInput);
+                
+                setAiKey(keyInput);
+                localStorage.setItem('gemini_api_key', keyInput);
+
+                setShowSettings(false);
+                if(urlInput) {
+                    setUseMock(false);
+                    fetchData(urlInput);
+                }
+            };
+
+            // --- Handlers ---
+            const toggleEditMode = () => {
+                if (isEditing) {
+                    if (!useMock && apiUrl) saveData();
+                    else setIsEditing(false);
+                } else {
+                    setIsEditing(true);
+                }
+            };
+            const updateStockLocal = (uiId, field, value) => {
+                setStocks(prevStocks => prevStocks.map(stock => stock._ui_id === uiId ? { ...stock, [field]: value } : stock));
+            };
+            const handleDeleteClick = (uiId) => setDeleteConfirm({ show: true, targetId: uiId });
+            const confirmDelete = () => {
+                if (deleteConfirm.targetId) setStocks(prevStocks => prevStocks.filter(s => s._ui_id !== deleteConfirm.targetId));
+                setDeleteConfirm({ show: false, targetId: null });
+            };
+            const handleAddStock = () => setStocks([...stocks, { _ui_id: generateId(), id: '', name: '新股票', type: '', account: '口袋', shares: 0, price: 0, yesterdayPrice: 0 }]);
+            const handleSettlement = (account) => {
+                const amount = Number(settlement[account]);
+                if (isNaN(amount) || amount === 0) return;
+                setCash(prev => ({ ...prev, [account]: prev[account] + amount }));
+                setSettlement(prev => ({ ...prev, [account]: 0 }));
+            };
+            const handleSort = (key) => {
+                if (isEditing) return; 
+                setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc' }));
+            };
+
+            // --- Logic & Calc ---
+            const formatMoney = (n) => Math.round(n).toLocaleString();
+            const formatPercent = (n) => n.toFixed(1) + '%';
+            const dateStr = new Date().toLocaleDateString('zh-TW', { month: 'long', day: 'numeric' });
+            const weekDay = new Date().toLocaleDateString('zh-TW', { weekday: 'long' });
+
+            const totalStockValue = stocks.reduce((sum, s) => sum + (s.shares * s.price), 0);
+            const landBankStockValue = stocks.filter(s => s.account === '土銀').reduce((sum, s) => sum + (s.shares * s.price), 0);
+            const pocketStockValue = stocks.filter(s => s.account === '口袋').reduce((sum, s) => sum + (s.shares * s.price), 0);
+            const totalCash = Number(cash.landBank) + Number(cash.pocket);
+            const totalAssets = totalStockValue + totalCash;
+            const dailyAssetDiff = totalAssets - prevDayTotalAssets;
+            const dailyAssetDiffPercent = prevDayTotalAssets > 0 ? (dailyAssetDiff / prevDayTotalAssets) * 100 : 0;
+            const getDiffColor = (val) => val > 0 ? 'text-red-500' : val < 0 ? 'text-green-500' : 'text-gray-500';
+
+            const groupStats = useMemo(() => {
+                const groups = {};
+                stocks.forEach(s => {
+                    const val = s.shares * s.price;
+                    if (val > 0) {
+                        const typeName = s.type || '未分類';
+                        groups[typeName] = (groups[typeName] || 0) + val;
+                    }
+                });
+                return Object.entries(groups).map(([name, value], idx) => ({ name, value, pct: (value / totalStockValue) * 100, color: COLORS.palette[idx % COLORS.palette.length] })).sort((a, b) => b.value - a.value);
+            }, [stocks, totalStockValue]);
+
+            const finalStockList = useMemo(() => {
+                const processed = stocks.map(stock => {
+                    const marketValue = stock.shares * stock.price;
+                    const ratio = totalStockValue > 0 ? (marketValue / totalStockValue) * 100 : 0;
+                    let dailyDiff = 0;
+                    if (stock.yesterdayPrice && stock.yesterdayPrice > 0) { dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares; }
+                    return { ...stock, marketValue, ratio, dailyDiff };
+                });
+                if (isEditing) return processed;
+                return processed.sort((a, b) => {
+                    let valA, valB;
+                    if (sortConfig.key === 'marketValue') { valA = a.marketValue; valB = b.marketValue; } 
+                    else if (sortConfig.key === 'type') { valA = a.type || ''; valB = b.type || ''; } 
+                    else if (sortConfig.key === 'account') { valA = a.account || ''; valB = b.account || ''; }
+                    if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }, [stocks, totalStockValue, sortConfig, isEditing]);
+
+            // --- AI Logic ---
+            const generateAIInsight = async () => {
+                if (!aiKey) {
+                    setIsGeneratingAI(true);
+                    setTimeout(() => {
+                        setAiAnalysis(`(模擬模式) 請至「設定」輸入您的 Gemini API Key 以啟用真實 AI 分析。\n\n今日總資產 ${formatMoney(totalAssets)} 元。`);
+                        setIsGeneratingAI(false);
+                    }, 1000);
+                    return;
+                }
+
+                setIsGeneratingAI(true);
+                setAiAnalysis(""); 
+
+                try {
+                    const context = {
+                        date: dateStr,
+                        totalAssets,
+                        dailyDiff: dailyAssetDiff,
+                        cash,
+                        stocks: finalStockList.map(s => ({
+                            name: s.name, type: s.type, value: s.marketValue, diff: s.dailyDiff, pct: s.ratio.toFixed(1) + '%'
+                        }))
+                    };
+
+                    const prompt = `
+                        你是一位專業的個人理財顧問。請根據以下用戶今日的資產數據，用繁體中文生成一份簡短的「每日投資快報」。
+                        數據：${JSON.stringify(context)}
+                        要求：
+                        1. 語氣專業但親切。
+                        2. 先總結今日資產變動。
+                        3. 分析最大持股或表現顯著的族群。
+                        4. 根據現金水位 (${((totalCash/totalAssets)*100).toFixed(0)}%) 給出建議。
+                        5. 總字數控制在 150 字以內，不要用 Markdown 標題，直接分段即可。
+                    `;
+
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${aiKey}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.candidates && data.candidates[0].content) {
+                        setAiAnalysis(data.candidates[0].content.parts[0].text);
+                    } else {
+                        throw new Error("API 額度不足或格式錯誤");
+                    }
+
+                } catch (error) {
+                    setAiAnalysis(`AI 分析失敗: ${error.message}`);
+                } finally {
+                    setIsGeneratingAI(false);
+                }
+            };
+
+            const playTTS = () => {
+                setIsPlayingAudio(!isPlayingAudio);
+                if (!isPlayingAudio && aiAnalysis) {
+                    const utterance = new SpeechSynthesisUtterance(aiAnalysis.replace(/[^\w\u4e00-\u9fa5]/g, ','));
+                    utterance.lang = 'zh-TW';
+                    window.speechSynthesis.speak(utterance);
+                    utterance.onend = () => setIsPlayingAudio(false);
+                } else {
+                    window.speechSynthesis.cancel();
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50 font-sans pb-24 relative">
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in">
+                            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <Settings size={20} className="text-gray-600"/> 
+                                    連線設定
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Google Apps Script URL</label>
+                                        <input type="text" defaultValue={apiUrl} id="apiUrlInput" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://script.google.com/..." />
+                                        <p className="text-xs text-gray-400 mt-1">用於讀寫試算表數據。</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">Gemini API Key <Key size={12}/></label>
+                                        <input type="password" defaultValue={aiKey} id="apiKeyInput" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="AIzaSy..." />
+                                        <p className="text-xs text-gray-400 mt-1">選填，用於啟用 AI 分析。</p>
+                                    </div>
+                                    <div className="flex gap-2 justify-end pt-2">
+                                        <button onClick={() => setShowSettings(false)} className="px-4 py-2 text-gray-500 text-sm font-medium hover:bg-gray-100 rounded-lg">取消</button>
+                                        <button onClick={handleSaveSettings} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 flex items-center gap-1"><Check size={16}/> 儲存</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Header */}
+                    <header className="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200" style={{paddingTop: 'env(safe-area-inset-top)'}}>
+                        <div className="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
+                            <div>
+                                <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                    <span style={{color: COLORS.blue}}>鈔</span><span style={{color: COLORS.green}}>能力</span><span style={{color: COLORS.red}}>雷達</span>
+                                </h1>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-xs text-gray-500 flex items-center gap-1"><Calendar size={12} /> {dateStr} ({weekDay})</p>
+                                    {isLoading && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded flex items-center gap-1"><RefreshCw size={8} className="animate-spin"/> 連線中</span>}
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => setShowSettings(true)} className="p-2 rounded-full bg-gray-50 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"><Settings size={20} /></button>
+                                <button onClick={toggleEditMode} disabled={isLoading} className={`p-2 rounded-full transition-all duration-300 ${isEditing ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-400' : 'bg-gray-100 text-gray-600'}`}>
+                                    {isEditing ? <Save size={20} /> : <Edit2 size={20} />}
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-md mx-auto px-4 py-4 space-y-4">
+                        {/* Custom Modal for Delete Confirmation */}
+                        {deleteConfirm.show && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in">
+                                <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm text-center">
+                                    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                                        <Trash2 size={24} className="text-red-500" />
+                                    </div>
+                                    <h3 className="text-lg font-bold text-gray-800 mb-2">確定要刪除嗎？</h3>
+                                    <p className="text-sm text-gray-500 mb-6">刪除後此持股紀錄將無法復原。</p>
+                                    <div className="flex gap-3 justify-center">
+                                        <button onClick={() => setDeleteConfirm({ show: false, targetId: null })} className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-bold flex-1">取消</button>
+                                        <button onClick={confirmDelete} className="px-4 py-2 bg-red-500 text-white hover:bg-red-600 rounded-xl text-sm font-bold flex-1">刪除</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* URL Check Warning */}
+                        {useMock && !apiUrl && !showSettings && (
+                            <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl text-xs text-yellow-800 flex items-start gap-2 cursor-pointer" onClick={() => setShowSettings(true)}>
+                                <span className="text-lg">⚠️</span>
+                                <div>
+                                    <p className="font-bold">尚未連線</p>
+                                    <p>點擊此處設定連線，啟用完整功能。</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Block 1: Overview */}
+                        <div className="bg-white rounded-2xl shadow-sm p-5 border-l-4" style={{borderColor: COLORS.blue}}>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-gray-500 text-sm font-medium">總資產淨值</span>
+                                <span className={`text-sm font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
+                                    {dailyAssetDiff > 0 ? <TrendingUp size={16} className="mr-1"/> : <TrendingDown size={16} className="mr-1"/>}
+                                    {formatPercent(dailyAssetDiffPercent)}
+                                </span>
+                            </div>
+                            <div className="text-3xl font-extrabold text-gray-800 tracking-tight">${formatMoney(totalAssets)}</div>
+                            <div className="mt-4 flex h-2 w-full rounded-full overflow-hidden bg-gray-100">
+                                <div style={{width: `${totalAssets > 0 ? (totalStockValue/totalAssets)*100 : 0}%`, backgroundColor: COLORS.blue}}></div>
+                                <div style={{width: `${totalAssets > 0 ? (totalCash/totalAssets)*100 : 0}%`, backgroundColor: COLORS.yellow}}></div>
+                            </div>
+                            <div className="mt-2 flex justify-between text-xs text-gray-500 mb-4 border-b border-gray-100 pb-4">
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{background:COLORS.blue}}></div>股票 {totalAssets > 0 ? (totalStockValue/totalAssets*100).toFixed(1) : 0}%</span>
+                                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full" style={{background:COLORS.yellow}}></div>現金 {totalAssets > 0 ? (totalCash/totalAssets*100).toFixed(1) : 0}%</span>
+                            </div>
+                            <div>
+                                <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wide">股票族群分佈</h3>
+                                <div className="space-y-2">
+                                    {groupStats.length > 0 ? groupStats.map(g => (
+                                        <div key={g.name} className="flex items-center gap-2 text-xs">
+                                            <div className="w-20 text-gray-600 truncate text-right">{g.name}</div>
+                                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                <div style={{width: `${g.pct}%`, backgroundColor: g.color}} className="h-full rounded-full"></div>
+                                            </div>
+                                            <div className="w-10 text-right font-medium text-gray-700">{Math.round(g.pct)}%</div>
+                                        </div>
+                                    )) : <div className="text-xs text-gray-400 text-center py-2">無股票部位</div>}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* AI Section */}
+                        {!isEditing && (
+                            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-4 border border-purple-100 shadow-sm relative overflow-hidden">
+                                <Sparkles className="absolute -right-4 -top-4 text-purple-200 opacity-50" size={80} />
+                                <div className="relative z-10">
+                                    <h2 className="text-purple-800 font-bold flex items-center gap-2 mb-2"><Sparkles size={18} className="fill-purple-400 text-purple-600"/> AI 助理</h2>
+                                    {aiAnalysis ? (
+                                        <div className="space-y-3 animate-in">
+                                            <div className="bg-white/80 backdrop-blur-sm p-3 rounded-xl text-sm text-gray-700 leading-relaxed shadow-sm prose" dangerouslySetInnerHTML={{ __html: marked.parse(aiAnalysis) }}></div>
+                                            <div className="flex gap-2">
+                                                <button onClick={playTTS} disabled={isGeneratingAI} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${isPlayingAudio ? 'bg-red-100 text-red-600' : 'bg-purple-600 text-white hover:bg-purple-700'}`}>
+                                                    {isGeneratingAI ? <Loader className="animate-spin" size={14} /> : isPlayingAudio ? <><StopCircle size={14} /> 停止</> : <><Volume2 size={14} /> 播報</>}
+                                                </button>
+                                                <button onClick={generateAIInsight} disabled={isGeneratingAI} className="px-3 py-2 bg-white text-purple-600 border border-purple-200 rounded-xl text-xs font-bold hover:bg-purple-50">重新</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex justify-between items-center">
+                                            <p className="text-xs text-purple-600/80 max-w-[60%]">生成今日投資快報</p>
+                                            <button onClick={generateAIInsight} disabled={isGeneratingAI} className="bg-white text-purple-600 border border-purple-200 shadow-sm px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-50 flex items-center gap-2 transition-all">
+                                                {isGeneratingAI ? <Loader className="animate-spin" size={14} /> : <Sparkles size={14} />} 分析
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Block 2: Stocks */}
+                        <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.red}}>
+                            <div className="flex flex-col gap-3 mb-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-gray-700 font-bold flex items-center gap-2"><PieIcon size={18} className="text-red-500"/> 股票部位</h2>
+                                    {/* [新功能] 更新市值按鈕 */}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-400">市值: {formatMoney(totalStockValue)}</span>
+                                        {!isEditing && !useMock && (
+                                            <button onClick={handleRefreshPrices} disabled={isLoading} className="bg-gray-100 hover:bg-gray-200 text-gray-500 p-1.5 rounded-full transition-colors" title="更新即時股價">
+                                                <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                    <span className="text-xs font-bold text-gray-500 whitespace-nowrap flex items-center"><ArrowUpDown size={12} className="mr-1"/>排序:</span>
+                                    <button onClick={() => handleSort('type')} disabled={isEditing} className={`px-2 py-1 rounded text-xs whitespace-nowrap border transition-colors ${sortConfig.key === 'type' && !isEditing ? 'bg-red-50 text-red-600 border-red-200 font-bold' : 'bg-white text-gray-600 border-gray-200 disabled:opacity-50'}`}>族群</button>
+                                    <button onClick={() => handleSort('marketValue')} disabled={isEditing} className={`px-2 py-1 rounded text-xs whitespace-nowrap border transition-colors ${sortConfig.key === 'marketValue' && !isEditing ? 'bg-red-50 text-red-600 border-red-200 font-bold' : 'bg-white text-gray-600 border-gray-200 disabled:opacity-50'}`}>市值</button>
+                                    <button onClick={() => handleSort('account')} disabled={isEditing} className={`px-2 py-1 rounded text-xs whitespace-nowrap border transition-colors ${sortConfig.key === 'account' && !isEditing ? 'bg-red-50 text-red-600 border-red-200 font-bold' : 'bg-white text-gray-600 border-gray-200 disabled:opacity-50'}`}>帳戶</button>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <div className="bg-red-50 p-3 rounded-xl border border-red-100">
+                                    <div className="text-xs text-gray-500 mb-1">土銀</div>
+                                    <div className="font-bold text-gray-800 text-lg">${formatMoney(landBankStockValue)}</div>
+                                </div>
+                                <div className="bg-red-50 p-3 rounded-xl border border-red-100">
+                                    <div className="text-xs text-gray-500 mb-1">口袋</div>
+                                    <div className="font-bold text-gray-800 text-lg">${formatMoney(pocketStockValue)}</div>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+                                        <tr>
+                                            <th className="px-1 py-2 font-medium w-1/3">名稱/類別/代號</th>
+                                            <th className="px-1 py-2 font-medium text-right w-1/4">{isEditing ? '帳戶/股數' : '淨值'}</th>
+                                            <th className="px-1 py-2 font-medium text-right w-1/4">損益/佔比</th>
+                                            {isEditing && <th className="px-1 py-2 font-medium w-8">刪</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {finalStockList.map((stock) => (
+                                            <tr key={stock._ui_id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
+                                                <td className="px-1 py-3 align-top">
+                                                    {isEditing ? (
+                                                        <div className="flex flex-col gap-2">
+                                                            <div className="flex gap-1">
+                                                                <input className="w-12 text-[10px] text-gray-500 border border-gray-300 rounded px-1 py-0.5 text-center bg-gray-50" value={stock.id} onChange={(e) => updateStockLocal(stock._ui_id, 'id', e.target.value)} placeholder="ID" />
+                                                                 <input className="flex-1 text-xs font-bold border border-gray-300 rounded px-1 py-0.5" value={stock.name} onChange={(e) => updateStockLocal(stock._ui_id, 'name', e.target.value)} placeholder="名稱" />
+                                                            </div>
+                                                            <input className="w-full text-[10px] text-blue-600 border border-blue-200 bg-blue-50 rounded px-1 py-0.5" value={stock.type} onChange={(e) => updateStockLocal(stock._ui_id, 'type', e.target.value)} placeholder="輸入類別" />
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <div className="font-bold text-gray-800 text-sm">{stock.name}</div>
+                                                            <div className="flex gap-1 mt-1">
+                                                                <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500">{stock.id}</span>
+                                                                <span className="text-[10px] bg-blue-50 text-blue-600 px-1 rounded border border-blue-100">{stock.type}</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-1 py-3 text-right align-top font-mono">
+                                                    {isEditing ? (
+                                                        <div className="flex flex-col gap-2 items-end">
+                                                            <select className="text-xs border border-gray-300 rounded px-1 py-0.5" value={stock.account} onChange={(e) => updateStockLocal(stock._ui_id, 'account', e.target.value)}>
+                                                                <option value="口袋">口袋</option><option value="土銀">土銀</option>
+                                                            </select>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-[10px] text-gray-400">股</span>
+                                                                <input type="number" className="w-16 border border-blue-300 rounded px-1 text-right bg-blue-50 focus:ring-1 focus:ring-blue-500 outline-none font-bold" value={stock.shares} onChange={(e) => updateStockLocal(stock._ui_id, 'shares', Number(e.target.value))} />
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-400">現價: {stock.price}</div>
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <div className="font-medium text-gray-800">${formatMoney(stock.marketValue)}</div>
+                                                            <div className="text-[10px] text-gray-400">{stock.account} · {stock.shares}股</div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-1 py-3 text-right align-top">
+                                                     <div className="flex flex-col items-end">
+                                                        <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
+                                                        <span className={`text-[10px] mt-0.5 ${getDiffColor(stock.dailyDiff)}`}>
+                                                           {stock.yesterdayPrice > 0 ? (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff) : '-'}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                {isEditing && (
+                                                    <td className="px-1 py-3 align-middle text-center">
+                                                        <button onClick={() => handleDeleteClick(stock._ui_id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {isEditing && (
+                                    <button onClick={handleAddStock} className="w-full mt-3 py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-400 hover:border-blue-400 hover:text-blue-500 flex items-center justify-center gap-2 transition-colors"><Plus size={18} /> 新增持股</button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Block 3: Cash */}
+                        <div className="bg-white rounded-2xl shadow-sm p-4 border-l-4" style={{borderColor: COLORS.yellow}}>
+                            <h2 className="text-gray-700 font-bold mb-3 flex items-center gap-2"><DollarSign size={18} className="text-yellow-500"/> 現金部位 <span className="text-xs font-normal text-gray-400 ml-auto">總現金: {formatMoney(totalCash)}</span></h2>
+                            <div className="space-y-3">
+                                {['landBank', 'pocket'].map(acc => (
+                                    <div key={acc} className="p-3 bg-yellow-50 rounded-xl">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-gray-600 font-medium flex items-center gap-1">{acc === 'landBank' ? '土銀帳戶' : '口袋帳戶'} {isEditing && <span className="text-[10px] bg-blue-100 text-blue-600 px-1 rounded">編輯</span>}</span>
+                                            <span className="font-bold text-gray-800 text-lg">${formatMoney(cash[acc])}</span>
+                                        </div>
+                                        {isEditing && (
+                                            <div className="mt-2 flex items-center gap-2 bg-white p-2 rounded-lg border border-yellow-200">
+                                                <Calculator size={16} className="text-gray-400"/>
+                                                <input type="number" placeholder="+/-" className="flex-1 text-sm outline-none text-gray-700 placeholder-gray-300 bg-transparent" value={settlement[acc] || ''} onChange={(e) => setSettlement({...settlement, [acc]: e.target.value})} />
+                                                <button onClick={() => handleSettlement(acc)} className="bg-yellow-500 text-white text-xs px-3 py-1.5 rounded-md hover:bg-yellow-600 font-medium">更新</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Edit Mode Footer */}
+                        {isEditing && (
+                            <div className="fixed bottom-4 left-0 right-0 px-4 z-30">
+                                <div className="bg-blue-600 text-white p-3 rounded-xl shadow-xl flex justify-between items-center animate-in">
+                                    <span className="font-bold text-sm">編輯模式開啟中</span>
+                                    <button onClick={toggleEditMode} className="bg-white text-blue-600 px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-1">{isLoading ? '同步中...' : '完成並儲存'}</button>
+                                </div>
+                            </div>
+                        )}
+                    </main>
                 </div>
-              )}
-            </div>
+            );
+        };
 
-            <div className="p-3 bg-yellow-50 rounded-xl">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-gray-600 font-medium flex items-center gap-1">
-                  口袋帳戶
-                   {isEditing && <span className="text-[10px] bg-blue-100 text-blue-600 px-1 rounded">編輯中</span>}
-                </span>
-                <span className="font-bold text-gray-800 text-lg">${formatMoney(cash.pocket)}</span>
-              </div>
-
-               {isEditing && (
-                <div className="mt-2 flex items-center gap-2 bg-white p-2 rounded-lg border border-yellow-200">
-                   <Calculator size={16} className="text-gray-400"/>
-                  <input 
-                    type="number" 
-                    placeholder="輸入交割金額 (+/-)"
-                    className="flex-1 text-sm outline-none text-gray-700 placeholder-gray-300"
-                    value={settlement.pocket || ''}
-                    onChange={(e) => setSettlement({...settlement, pocket: e.target.value})}
-                  />
-                  <button 
-                    onClick={() => handleSettlement('pocket')}
-                    className="bg-yellow-500 text-white text-xs px-3 py-1.5 rounded-md hover:bg-yellow-600 font-medium"
-                  >
-                    更新餘額
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 底部操作提示 */}
-        {isEditing && (
-          <div className="fixed bottom-4 left-0 right-0 px-4 z-30">
-             <div className="bg-blue-600 text-white p-3 rounded-xl shadow-xl flex justify-between items-center animate-in slide-in-from-bottom duration-300">
-               <span className="font-bold text-sm">編輯模式開啟中</span>
-               <button 
-                onClick={toggleEditMode}
-                className="bg-white text-blue-600 px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-1"
-               >
-                 {syncing ? '同步中...' : '完成並儲存'}
-               </button>
-             </div>
-          </div>
-        )}
-
-      </main>
-    </div>
-  );
-};
-
-export default PortfolioTracker;
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
