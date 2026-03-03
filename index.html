@@ -283,12 +283,19 @@
             }, [stocks, totalStockValue]);
 
             const finalStockList = useMemo(() => {
-                const processed = stocks.map(stock => {
+                const processed = stocks.map((stock, index) => {
                     const marketValue = stock.shares * stock.price;
                     const ratio = totalStockValue > 0 ? (marketValue / totalStockValue) * 100 : 0;
                     let dailyDiff = 0;
-                    if (stock.yesterdayPrice && stock.yesterdayPrice > 0) { dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares; }
-                    return { ...stock, marketValue, ratio, dailyDiff };
+                    if (stock.yesterdayPrice && stock.yesterdayPrice > 0) { 
+                        dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares; 
+                    }
+                    
+                    // [診斷點 C] 邏輯分支點：計算單一持股對總資產的影響率
+                    const dailyImpact = totalAssets > 0 ? (dailyDiff / totalAssets) * 100 : 0;
+                    if (index === 0) console.log(`[Diagnostic] ${stock.name} 今日變動影響總資產: ${dailyImpact.toFixed(3)}%`);
+
+                    return { ...stock, marketValue, ratio, dailyDiff, dailyImpact };
                 });
                 if (isEditing) return processed;
                 return processed.sort((a, b) => {
@@ -300,8 +307,7 @@
                     if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
                     return 0;
                 });
-            }, [stocks, totalStockValue, sortConfig, isEditing]);
-
+            }, [stocks, totalStockValue, totalAssets, sortConfig, isEditing]); // 確保相依性包含 totalAssets
             // --- AI Logic ---
             const generateAIInsight = async () => {
                 if (!aiKey) {
@@ -601,7 +607,9 @@
                                                      <div className="flex flex-col items-end">
                                                         <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
                                                         <span className={`text-[10px] mt-0.5 ${getDiffColor(stock.dailyDiff)}`}>
-                                                           {stock.yesterdayPrice > 0 ? (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff) : '-'}
+                                                            {stock.yesterdayPrice > 0 
+                                                                ? (stock.dailyDiff > 0 ? '+' : '') + stock.dailyImpact.toFixed(2) + '%' 
+                                                                : '-'}
                                                         </span>
                                                     </div>
                                                 </td>
