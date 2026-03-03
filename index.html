@@ -99,6 +99,13 @@
 
         // --- Main Component ---
         const App = () => {
+            // [診斷點 A] 初始化顯示模式
+            const [showPercentMode, setShowPercentMode] = useState(false);
+
+            const toggleDisplayMode = () => {
+                setShowPercentMode(!showPercentMode);
+                console.log(`[Diagnostic] 切換顯示模式: ${!showPercentMode ? '百分比' : '絕對金額'}`);
+            };
             // --- State Initialization with Cache (SWR Pattern) ---
             const [apiUrl, setApiUrl] = useState(() => DEFAULT_GAS_URL || localStorage.getItem('asset_api_url') || '');
             const [aiKey, setAiKey] = useState(() => localStorage.getItem('gemini_api_key') || ''); 
@@ -524,6 +531,8 @@
                             <div className="flex flex-col gap-3 mb-4">
                                 <div className="flex justify-between items-center">
                                     <h2 className="text-gray-700 font-bold flex items-center gap-2"><PieIcon size={18} className="text-red-500"/> 股票部位</h2>
+                                    
+                                    
                                     {/* [新功能] 更新市值按鈕 */}
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs text-gray-400">市值: {formatMoney(totalStockValue)}</span>
@@ -531,7 +540,15 @@
                                             <button onClick={handleRefreshPrices} disabled={isLoading} className="bg-gray-100 hover:bg-gray-200 text-gray-500 p-1.5 rounded-full transition-colors" title="更新即時股價">
                                                 <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
                                             </button>
+                                            
+                                            
                                         )}
+                                        <button 
+                                        onClick={toggleDisplayMode}
+                                        className="text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded-md border border-gray-200 transition-colors font-bold"
+                                    >
+                                        {showPercentMode ? "顯示金額" : "顯示影響%"}
+                                    </button>
                                     </div>
                                 </div>
                                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -604,12 +621,17 @@
                                                     )}
                                                 </td>
                                                 <td className="px-1 py-3 text-right align-top">
-                                                     <div className="flex flex-col items-end">
+                                                    <div className="flex flex-col items-end">
                                                         <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
-                                                        <span className={`text-[10px] mt-0.5 ${getDiffColor(stock.dailyDiff)}`}>
-                                                            {stock.yesterdayPrice > 0 
-                                                                ? (stock.dailyDiff > 0 ? '+' : '') + stock.dailyImpact.toFixed(2) + '%' 
-                                                                : '-'}
+                                                        <span 
+                                                            className={`text-[10px] mt-0.5 cursor-pointer hover:underline ${getDiffColor(stock.dailyDiff)}`}
+                                                            onClick={toggleDisplayMode} // 點擊數字也能直接切換
+                                                        >
+                                                            {stock.yesterdayPrice > 0 ? (
+                                                                showPercentMode 
+                                                                ? (stock.dailyDiff > 0 ? '+' : '') + stock.dailyImpact.toFixed(2) + '%'
+                                                                : (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff)
+                                                            ) : '-'}
                                                         </span>
                                                     </div>
                                                 </td>
