@@ -26,8 +26,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBzdHlsZT0iYmFja2dyb3VuZC1jb2xvcjojNDI4NUY0Ij48cGF0aCBkPSJNMjU2IDMyYTIyNCAyMjQgMCAxIDEgMCA0NDggMjI0IDIyNCAwIDEgMSAwLTQ0OHptMCA0MTZhMTkyIDE5MiAwIDEgMCAwLTM4NCAxOTIgMTkyIDAgMSAwIDAtMzg0eiIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNTYgOTZhMTYwIDE2MCAwIDEgMSAwIDMyMCAxNjAgMTYwIDAgMSAxIDAtMzIwem0wIDI4OGExMjggMTI4IDAgMSAwIDAtMjU2IDEyOCAxMjggMCAxIDAgMCAyNTZ6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjMiLz48cGF0aCBkPSJNMjU2IDE2MGE5NiA5NiAwIDEgMSAwIDE5MiA5NiA5NiAwIDEgMSAwLTE5MnptMCAxNjBhNjQgNjQgMCAxIDAgMC0xMjggNjQgNjQgMCAxIDAgMCAxMjh6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjUiLz48cGF0aCBkPSJNMjU2IDExMnYxNDRsMTAxLjhMNDY0IDI1NmExOTIgMTkyIDAgMCAxLTIwOCAxOTJWMTEyeiIgZmlsbD0iI2ZmZiIgLz48L3N2Zz4=">
 
     <!-- [新功能] PWA Manifest (Data URI) 強制宣告為獨立 App -->
-    <link rel="manifest" href='data:application/manifest+json,{"name":"鈔能力雷達","short_name":"鈔能力","display":"standalone","background_color":"#f3f4f6","theme_color":"#f3f4f6","icons":[{"src":"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBzdHlsZT0iYmFja2dyb3VuZC1jb2xvcjojNDI4NUY0Ij48cGF0aCBkPSJNMjU2IDMyYTIyNCAyMjQgMCAxIDEgMCA0NDggMjI0IDIyNCAwIDEgMSAwLTQ0OHptMCA0MTZhMTkyIDE5MiAwIDEgMCAwLTM4NCAxOTIgMTkyIDAgMSAwIDAtMzg0eiIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNTYgOTZhMTYwIDE2MCAwIDEgMSAwIDMyMCAxNjAgMTYwIDAgMSAxIDAtMzIwem0wIDI4OGExMjggMTI4IDAgMSAwIDAtMjU2IDEyOCAxMjggMCAxIDAgMCAyNTZ6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjMiLz48cGF0aCBkPSJNMjU2IDE2MGE5NiA5NiAwIDEgMSAwIDE5MiA5NiA5NiAwIDEgMSAwLTE5MnptMCAxNjBhNjQgNjQgMCAxIDAgMC0xMjggNjQgNjQgMCAxIDAgMCAxMjh6IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjUiLz48cGF0aCBkPSJNMjU2IDExMnYxNDRsMTAxLjhMNDY0IDI1NmExOTIgMTkyIDAgMCAxLTIwOCAxOTJWMTEyeiIgZmlsbD0iI2ZmZiIgLz48L3N2Zz4=","sizes":"192x192","type":"image/svg+xml"}]}'>
-
+    <link rel="manifest" href="./manifest.json">
     <style>
         body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-tap-highlight-color: transparent; }
         /* 適配 iPhone 瀏海與底部 Home Bar */
@@ -290,20 +289,29 @@
             }, [stocks, totalStockValue]);
 
             const finalStockList = useMemo(() => {
+                console.log(`[Diagnostic A] 進入 finalStockList 重新計算，基準 totalAssets: ${totalAssets}`); // 診斷點 A
+                
                 const processed = stocks.map((stock, index) => {
                     const marketValue = stock.shares * stock.price;
-                    const ratio = totalStockValue > 0 ? (marketValue / totalStockValue) * 100 : 0;
+                    
+                    // [修改要求] ratio 改為以 totalAssets 為分母
+                    const ratio = totalAssets > 0 ? (marketValue / totalAssets) * 100 : 0;
+                    
                     let dailyDiff = 0;
                     if (stock.yesterdayPrice && stock.yesterdayPrice > 0) { 
                         dailyDiff = (stock.price - stock.yesterdayPrice) * stock.shares; 
                     }
                     
-                    // [診斷點 C] 邏輯分支點：計算單一持股對總資產的影響率
                     const dailyImpact = totalAssets > 0 ? (dailyDiff / totalAssets) * 100 : 0;
-                    if (index === 0) console.log(`[Diagnostic] ${stock.name} 今日變動影響總資產: ${dailyImpact.toFixed(3)}%`);
+                    
+                    // [診斷點 C] 抽樣第一筆持股，確認佔比與影響率的計算是否正確
+                    if (index === 0) {
+                        console.log(`[Diagnostic C] 抽樣檢驗 ${stock.name} - 佔總資產比例: ${ratio.toFixed(2)}%, 影響總資產: ${dailyImpact.toFixed(3)}%`);
+                    }
 
                     return { ...stock, marketValue, ratio, dailyDiff, dailyImpact };
                 });
+                
                 if (isEditing) return processed;
                 return processed.sort((a, b) => {
                     let valA, valB;
@@ -314,7 +322,7 @@
                     if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
                     return 0;
                 });
-            }, [stocks, totalStockValue, totalAssets, sortConfig, isEditing]); // 確保相依性包含 totalAssets
+            }, [stocks, totalStockValue, totalAssets, sortConfig, isEditing]);
             // --- AI Logic ---
             const generateAIInsight = async () => {
                 if (!aiKey) {
@@ -573,10 +581,9 @@
                                 <table className="w-full text-sm text-left">
                                     <thead className="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
                                         <tr>
-                                            <th className="px-1 py-2 font-medium w-1/3">名稱/類別/代號</th>
+                                            <th className="px-1 py-2 font-medium w-1/3">名稱/代號/類別</th>
                                             <th className="px-1 py-2 font-medium text-right w-1/4">{isEditing ? '帳戶/股數' : '淨值'}</th>
-                                            <th className="px-1 py-2 font-medium text-right w-1/4">損益/佔比</th>
-                                            {isEditing && <th className="px-1 py-2 font-medium w-8">刪</th>}
+                                            <th className="px-1 py-2 font-medium text-right w-1/4">損益/佔總資產</th>                                            {isEditing && <th className="px-1 py-2 font-medium w-8">刪</th>}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -621,20 +628,24 @@
                                                     )}
                                                 </td>
                                                 <td className="px-1 py-3 text-right align-top">
-                                                    <div className="flex flex-col items-end">
-                                                        <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
-                                                        <span 
-                                                            className={`text-[10px] mt-0.5 cursor-pointer hover:underline ${getDiffColor(stock.dailyDiff)}`}
-                                                            onClick={toggleDisplayMode} // 點擊數字也能直接切換
-                                                        >
-                                                            {stock.yesterdayPrice > 0 ? (
-                                                                showPercentMode 
-                                                                ? (stock.dailyDiff > 0 ? '+' : '') + stock.dailyImpact.toFixed(2) + '%'
-                                                                : (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff)
-                                                            ) : '-'}
-                                                        </span>
-                                                    </div>
-                                                </td>
+                                                  <div className="flex flex-col items-end">
+                                                      <span className="font-medium text-gray-700">{formatPercent(stock.ratio)}</span>
+                                                      {/* 確保 onClick 事件有綁定，並且加上 hover:underline 讓使用者知道可以點擊 */}
+                                                      <span
+                                                          className={`text-[10px] mt-0.5 cursor-pointer hover:underline ${getDiffColor(stock.dailyDiff)}`}
+                                                          onClick={() => {
+                                                              console.log(`[Diagnostic C] 觸發點擊，準備切換顯示模式。切換前狀態: ${showPercentMode}`); // 診斷點 C
+                                                              toggleDisplayMode();
+                                                          }}
+                                                      >
+                                                          {stock.yesterdayPrice > 0 ? (
+                                                              showPercentMode
+                                                              ? (stock.dailyDiff > 0 ? '+' : '') + stock.dailyImpact.toFixed(2) + '%'
+                                                              : (stock.dailyDiff > 0 ? '+' : '') + formatMoney(stock.dailyDiff)
+                                                          ) : '-'}
+                                                      </span>
+                                                  </div>
+                                              </td>
                                                 {isEditing && (
                                                     <td className="px-1 py-3 align-middle text-center">
                                                         <button onClick={() => handleDeleteClick(stock._ui_id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
@@ -688,6 +699,20 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+    </script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          console.log('[App 診斷 A] 準備註冊 Service Worker');
+          navigator.serviceWorker.register('./sw.js')
+            .then((registration) => {
+              console.log('[App 診斷 D] Service Worker 註冊成功，Scope:', registration.scope);
+            })
+            .catch((error) => {
+              console.error('[App 診斷 D] Service Worker 註冊失敗:', error);
+            });
+        });
+      }
     </script>
 </body>
 </html>
