@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f3f4f6">
-    <title>鈔能力雷達 v3.2.0</title>
+    <title>鈔能力雷達 v3.2.8</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -121,6 +121,14 @@
                 const cached = localStorage.getItem(CACHE_KEY);
                 return cached ? JSON.parse(cached).prevDayTotalAssets : MOCK_DATA.lastHistory.totalAssets;
             });
+            const [momData, setMomData] = useState(() => {
+                const cached = localStorage.getItem(CACHE_KEY);
+                return cached && JSON.parse(cached).momData ? JSON.parse(cached).momData : null;
+            });
+            const [qoqData, setQoqData] = useState(() => {
+                const cached = localStorage.getItem(CACHE_KEY);
+                return cached && JSON.parse(cached).qoqData ? JSON.parse(cached).qoqData : null;
+            });
 
             // UseMock Logic: If no URL is set, force mock.
             // If URL is set but we loaded from cache, we are NOT using mock, but we might be loading.
@@ -168,15 +176,16 @@
 
                         setStocks(loadedStocks);
                         setCash(loadedCash);
-                        if (result.lastHistory) {
-                            setPrevDayTotalAssets(loadedHistory);
-                        }
+                        if (result.lastHistory) setPrevDayTotalAssets(result.lastHistory.totalAssets);
+                        if (result.momHistory) setMomData(result.momHistory);
+                        if (result.qoqHistory) setQoqData(result.qoqHistory);
 
-                        // Save to Cache
                         localStorage.setItem(CACHE_KEY, JSON.stringify({
                             stocks: loadedStocks,
                             cash: loadedCash,
-                            prevDayTotalAssets: loadedHistory,
+                            prevDayTotalAssets: result.lastHistory ? result.lastHistory.totalAssets : 0,
+                            momData: result.momHistory,
+                            qoqData: result.qoqHistory,
                             timestamp: new Date().getTime()
                         }));
                     }
@@ -384,7 +393,20 @@
                     landBank: formatData(results['土銀'] || {})
                 };
             }, [stocks, totalAssets]);
-            
+
+            // 通用真實報酬率公式：((當前總資產 - 區間出入金) - 基準) / 基準
+            const calcRealReturn = (current, baseObj) => {
+                if (!baseObj || baseObj.totalAssets <= 0) return 0;
+                const { totalAssets: base, periodAdjustment: adj } = baseObj;
+                return (((current - adj) - base) / base) * 100;
+            };
+
+            const momPercent = calcRealReturn(totalAssets, momData);
+            const qoqPercent = calcRealReturn(totalAssets, qoqData);
+
+            // 顏色與箭頭判定 (配合你 Approve 的視覺方案)
+            const getSecondaryDiffColor = (val) => val > 0 ? 'text-red-400' : val < 0 ? 'text-green-400' : 'text-gray-400';
+            const getTrendIcon = (val) => val > 0 ? '▲' : val < 0 ? '▼' : '-';
 
             return (
                 <div className="min-h-screen bg-gray-50 font-sans pb-24 relative">
@@ -461,17 +483,43 @@
                                 </div>
                             </div>
                         )}
-
-                        {/* Block 1: Overview */}
+                            {/* Block 1: Overview */}
                         <div className="bg-white rounded-2xl shadow-sm p-5 border-l-4" style={{borderColor: COLORS.blue}}>
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="text-gray-500 text-sm font-medium">總資產淨值</span>
-                                <span className={`text-sm font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
-                                    {dailyAssetDiff > 0 ? <TrendingUp size={16} className="mr-1"/> : <TrendingDown size={16} className="mr-1"/>}
-                                    {formatPercent(dailyAssetDiffPercent)}
-                                </span>
+                            <div className="flex justify-between items-end mb-2 w-full">
+                                <span className="text-gray-500 text-sm font-medium whitespace-nowrap">總資產淨值</span>
+                                
+                                {/* 歷史比較區塊 (靠右並排顯示) */}
+                                <div className="flex items-center gap-2 justify-end flex-wrap flex-1 text-right">
+                                    {/* 昨日 */}
+                                    <div className={`text-sm font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
+                                        昨日 {getTrendIcon(dailyAssetDiffPercent)} {Math.abs(dailyAssetDiffPercent).toFixed(1)}%
+                                    </div>
+                                    
+                                    <span className="text-gray-300">|</span>
+                                    
+                                    {/* MoM */}
+                                    <div className={`text-xs font-medium flex items-center ${getSecondaryDiffColor(momPercent)}`} title={momData ? `基準日: ${momData.date}` : '資料不足'}>
+                                        MoM {getTrendIcon(momPercent)} {Math.abs(momPercent).toFixed(1)}%
+                                    </div>
+                                    
+                                    <span className="text-gray-300">|</span>
+                                    
+                                    {/* QoQ */}
+                                    <div className={`text-xs font-medium flex items-center ${getSecondaryDiffColor(qoqPercent)}`} title={qoqData ? `基準日: ${qoqData.date}` : '資料不足'}>
+                                        QoQ {getTrendIcon(qoqPercent)} {Math.abs(qoqPercent).toFixed(1)}%
+                                    </div>
+
+                                    {/* 出入金標記 */}
+                                    {((momData && momData.periodAdjustment !== 0) || (qoqData && qoqData.periodAdjustment !== 0)) && (
+                                        <span className="ml-1 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-md shadow-sm border border-yellow-200" title="此期間包含手動出入金調整，報酬率已自動校正">
+                                            💰
+                                        </span>
+                                    )}
+                                </div>
                             </div>
+                            
                             <div className="text-3xl font-extrabold text-gray-800 tracking-tight">${formatMoney(totalAssets)}</div>
+                        
                             <div className="mt-4 flex h-2 w-full rounded-full overflow-hidden bg-gray-100">
                                 <div style={{width: `${totalAssets > 0 ? (totalStockValue/totalAssets)*100 : 0}%`, backgroundColor: COLORS.blue}}></div>
                                 <div style={{width: `${totalAssets > 0 ? (totalCash/totalAssets)*100 : 0}%`, backgroundColor: COLORS.yellow}}></div>
