@@ -483,38 +483,30 @@
                                 </div>
                             </div>
                         )}
-                            {/* Block 1: Overview */}
+                        {/* Block 1: Overview */}
                         <div className="bg-white rounded-2xl shadow-sm p-5 border-l-4" style={{borderColor: COLORS.blue}}>
-                            <div className="flex justify-between items-end mb-2 w-full">
-                                <span className="text-gray-500 text-sm font-medium whitespace-nowrap">總資產淨值</span>
-                                
-                                {/* 歷史比較區塊 (靠右並排顯示) */}
-                                <div className="flex items-center gap-2 justify-end flex-wrap flex-1 text-right">
-                                    {/* 昨日 */}
-                                    <div className={`text-sm font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
+                            <div className="flex flex-col gap-1 mb-3">
+                                {/* 第一行：變化數據列 (靠右) */}
+                                <div className="flex items-center justify-end gap-2 text-[11px]">
+                                    <div className={`font-bold flex items-center ${getDiffColor(dailyAssetDiffPercent)}`}>
                                         昨日 {getTrendIcon(dailyAssetDiffPercent)} {Math.abs(dailyAssetDiffPercent).toFixed(1)}%
                                     </div>
-                                    
                                     <span className="text-gray-300">|</span>
-                                    
-                                    {/* MoM */}
-                                    <div className={`text-xs font-medium flex items-center ${getSecondaryDiffColor(momPercent)}`} title={momData ? `基準日: ${momData.date}` : '資料不足'}>
+                                    <div className={`font-medium flex items-center ${getSecondaryDiffColor(momPercent)}`} title={momData ? `基準日: ${momData.date}` : '資料不足'}>
                                         MoM {getTrendIcon(momPercent)} {Math.abs(momPercent).toFixed(1)}%
                                     </div>
-                                    
                                     <span className="text-gray-300">|</span>
-                                    
-                                    {/* QoQ */}
-                                    <div className={`text-xs font-medium flex items-center ${getSecondaryDiffColor(qoqPercent)}`} title={qoqData ? `基準日: ${qoqData.date}` : '資料不足'}>
+                                    <div className={`font-medium flex items-center ${getSecondaryDiffColor(qoqPercent)}`} title={qoqData ? `基準日: ${qoqData.date}` : '資料不足'}>
                                         QoQ {getTrendIcon(qoqPercent)} {Math.abs(qoqPercent).toFixed(1)}%
                                     </div>
-
-                                    {/* 出入金標記 */}
                                     {((momData && momData.periodAdjustment !== 0) || (qoqData && qoqData.periodAdjustment !== 0)) && (
-                                        <span className="ml-1 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-md shadow-sm border border-yellow-200" title="此期間包含手動出入金調整，報酬率已自動校正">
-                                            💰
-                                        </span>
+                                        <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1 rounded-sm border border-yellow-200">💰</span>
                                     )}
+                                </div>
+
+                                {/* 第二行：標籤與數值 (靠左標籤，靠右金額) */}
+                                <div className="flex justify-between items-baseline">
+                                    <span className="text-gray-500 text-sm font-medium">總資產淨值</span>
                                 </div>
                             </div>
                             
